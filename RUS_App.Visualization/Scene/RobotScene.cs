@@ -1,0 +1,366 @@
+using RobotSimulation.Core.Geometry;
+using RobotSimulation.Core.Scene;
+using RobotSimulation.Robot;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Numerics;
+using System.Text;
+
+namespace RUS_App.Visualization.Scene;
+
+/// <summary>
+/// 机器人工位场景 —— 3D 视图的「内容」部分，与「怎么画」完全解耦。
+///
+/// <para>
+/// 这里只碰 RobotSimulation 的纯 CPU 类型（<see cref="SceneGraph"/> / <see cref="RobotModel"/>）：
+/// 没有 GL、没有控件、没有窗口，因此可以脱离显示器与显卡单独构造和检查 ——
+/// 关节驱动这半条链路因此是可测的（<see cref="ApplyJointValues"/>）。
+/// </para>
+/// <para>
+/// 它也是今后加图层的落点：点云、规划路径、实时轨迹、力矢量箭头都往 <see cref="Graph"/> 上挂，
+/// 上层界面不需要知道多了一个图层。
+/// </para>
+/// </summary>
+public sealed class RobotScene : IDisposable
+{
+    /// <summary>资源根目录名 —— 与 csproj 里 <c>Assets\**</c> 的复制规则一致。</summary>
+    private const string AssetsFolder = "Assets";
+
+    /// <summary>首选模型：真机 6 轴机械臂（带完整关节树与 STL mesh）。</summary>
+    private const string DefaultModelRelativePath = "Models/fairino3_v6/fairino3_v6.urdf";
+
+    /// <summary>首选模型缺失时的兜底：只用 URDF 内置几何体，保证「任何 checkout 都能看到东西」。</summary>
+    private const string FallbackModelRelativePath = "Models/primitives.urdf";
+
+    private readonly StringBuilder _log = new();
+
+    /// <summary>TCP 坐标系（三色箭头，rviz 风格）：默认隐藏，收到有效 TCP 位姿才显示、随后实时跟随。</summary>
+    private readonly Axes _tcpAxes;
+
+    /// <summary>增量网格接收端（<c>/mesh</c>）；块节点由它在场景里创建 / 替换 / 删除。</summary>
+    private readonly MeshSink _meshSink;
+
+    /// <summary>规划轨迹（<c>plan_done</c>）：一条折线；默认隐藏，收到轨迹才显示。</summary>
+    private readonly Curve _trajectory;
+
+    /// <summary>当前轨迹点数（&lt;2 = 无轨迹）；供可见性判断用。</summary>
+    private int _trajectoryPoints;
+
+    private RobotScene(SceneGraph graph)
+    {
+        Graph = graph;
+
+        // 感知点云图层在装配时就挂上（默认不可见，收到第一帧才显示）。
+        // 结构一次性定下来，此后整份生命期只管往里灌数据 —— 见 PointCloudLayer 的注释。
+        PointCloud = new PointCloudLayer();
+        graph.Add(PointCloud.Node);
+
+        // 面元点云图（/pcmap，重建融合地图）：与 /sensor 分开一层，默认隐藏。
+        PcMap = new PointCloudLayer(pointSize: 2.0f);
+        PcMap.Node.Visible = false;
+        graph.Add(PcMap.Node);
+
+        // 增量网格（/mesh）：库的 MeshSink 负责在场景里建 / 换 / 删块节点。
+        _meshSink = new MeshSink(graph, null, true);
+
+        // 规划轨迹（plan_done）：一条折线（库的 Curve，Line pass）。默认隐藏，收到轨迹才显示。
+        // 后端已算好 base_link 下的坐标，客户端不做变换。
+        _trajectory = new Curve([], color: new Vector4(0.1f, 0.9f, 0.4f, 1f),
+            name: "PlannedTrajectory", lineWidth: 3f)
+        {
+            Visible = false,
+        };
+        graph.Add(_trajectory);
+
+        // TCP 坐标系：库自带的 Axes（+X 红 / +Y 绿 / +Z 蓝）。用「恒定屏幕尺寸 + 永远可见」
+        // 当一个小标记 —— 它是给操作者指 TCP 朝向的，不该被机械臂本体挡住、也不该随镜头变大变小。
+        _tcpAxes = new Axes(0.08f, 0.0025f, 0.007f, 0.02f, "TcpFrame")
+        {
+            Sizing = AxesSizing.ConstantScreenSize,
+            AlwaysOnTop = true,
+            Visible = false,
+        };
+        graph.Add(_tcpAxes);
+    }
+
+    /// <summary>场景图：已含默认网格 / 灯光 / 世界坐标轴与一个可用机位（由库的构造函数给出）。</summary>
+    public SceneGraph Graph { get; }
+
+    /// <summary>
+    /// 感知点云图层（<c>/sensor</c>）。<see cref="ApplyPointCloudFrame"/> 是它的数据入口 ——
+    /// 相机取景刻意不看它：临床场景里点云可能铺得比机械臂大得多，按整机取景才看得清姿态。
+    /// </summary>
+    public PointCloudLayer PointCloud { get; }
+
+    /// <summary>
+    /// 面元点云图图层（<c>/pcmap</c>）——重建的融合点云地图（去噪 / 带置信度）。
+    /// 与 <see cref="PointCloud"/>（原始 <c>/sensor</c>）分开一层，默认隐藏。
+    /// </summary>
+    public PointCloudLayer PcMap { get; }
+
+    /// <summary>实际加载的机器人模型；未加载到模型时为 null（场景只剩网格与坐标轴）。</summary>
+    public RobotModel? Robot { get; private set; }
+
+    /// <summary>实际加载的 URDF 绝对路径；未加载到模型时为 null。</summary>
+    public string? ModelPath { get; private set; }
+
+    /// <summary>整机在场景空间的包围盒（米，零位姿态下算得）；没有网格时为 null。</summary>
+    public Bounds? MachineBounds { get; private set; }
+
+    /// <summary>装配过程的中文说明（加载了哪个模型、跳过了哪个、为什么）—— 供界面直接显示。</summary>
+    public string LoadReport => _log.ToString().TrimEnd();
+
+    /// <summary>
+    /// 装配默认场景：空场景图 + 优先加载真机模型。
+    /// 模型文件缺失或解析失败都【不抛异常】—— 界面不该因为一个数据文件而白屏，
+    /// 失败原因会写进 <see cref="LoadReport"/> 让用户看见。
+    /// </summary>
+    public static RobotScene CreateDefault()
+    {
+        var scene = new RobotScene(new SceneGraph());
+        scene.LoadRobot();
+
+        // 选中显示不用在这里开：SceneGraph.ShowSelectionAxes 库默认为 true —— 拾取走 Select/PickAndSelect
+        // 时，被选节点会自动挂上一枚自己的局部坐标轴（普通子节点，随节点一起动、不参与拾取），
+        // 箭头尺寸恒定屏幕大小，SelectionAxesLength（0.3 m）只是箭头几何的参考长度，
+        // 对 0.6 m 量级的整机不必调。本工程唯一要守的是「拾取必须走 PickAndSelect」，
+        // 见 RobotViewport.PickAt。
+        return scene;
+    }
+
+    /// <summary>
+    /// 把关节角批量写进模型（单位：弧度；长度必须等于 <see cref="RobotModel.DrivableJointCount"/>）。
+    /// </summary>
+    /// <returns>true = 已应用；false = 无模型或长度不匹配（调用方可根据 false 提示一次，不要每帧刷屏）。</returns>
+    public bool ApplyJointValues(IReadOnlyList<float> radians)
+    {
+        if (Robot is null || radians.Count != Robot.DrivableJointCount)
+            return false;
+
+        Robot.ApplyJointValues(radians);
+        return true;
+    }
+
+    /// <summary>
+    /// 实时更新 TCP 坐标系：位置为基坐标（m），姿态为固定轴 XYZ 的 RPY（rad，R = Rz·Ry·Rx）。
+    /// <paramref name="pose"/> 为 <c>null</c> / 不足 6 维时隐藏坐标系。
+    /// <b>只能在场景图属主线程（渲染回调）调用。</b>
+    /// </summary>
+    public void ApplyTcpPose(IReadOnlyList<float>? pose)
+    {
+        if (pose is null || pose.Count < 6)
+        {
+            _tcpAxes.Visible = false;
+            return;
+        }
+
+        _tcpAxes.Transform.Position = new Vector3(pose[0], pose[1], pose[2]);
+        _tcpAxes.Transform.Rotation = RpyToQuaternion(pose[3], pose[4], pose[5]);
+        _tcpAxes.Visible = true;
+    }
+
+    /// <summary>固定轴 XYZ（R = Rz·Ry·Rx）的 RPY → 四元数（与驱动 / 协议口径一致）。</summary>
+    private static Quaternion RpyToQuaternion(float rx, float ry, float rz)
+        => Quaternion.CreateFromAxisAngle(Vector3.UnitZ, rz)
+         * Quaternion.CreateFromAxisAngle(Vector3.UnitY, ry)
+         * Quaternion.CreateFromAxisAngle(Vector3.UnitX, rx);
+
+    /// <summary>
+    /// 用一帧感知点云整帧替换点云图层。
+    ///
+    /// <para>
+    /// <b>只能在场景图属主线程上调用</b>（本工程里就是 <c>RobotViewport</c> 的渲染回调）——
+    /// WS 线程递进来的帧要先过那里的邮箱，这是 RobotSimulation 0.3.0 立下的线程契约。
+    /// </para>
+    /// </summary>
+    /// <returns>true = 已落地；false = 帧不自洽（已丢弃并计数）。</returns>
+    public bool ApplyPointCloudFrame(PointCloudFrame frame) => PointCloud.Apply(frame);
+
+    /// <summary>用一帧面元点云图整帧替换（<c>/pcmap</c>）。属主线程调用。</summary>
+    public bool ApplyPcMapFrame(PointCloudFrame frame) => PcMap.Apply(frame);
+
+    /// <summary>清空并隐藏面元点云图。属主线程调用。</summary>
+    public void ClearPcMap() => PcMap.Clear();
+
+    /// <summary>
+    /// 用一条规划轨迹（<c>plan_done</c>）替换折线图层：<paramref name="points"/> 为 base_link 下的点序列
+    /// （m）。不足 2 个点视为清空 + 隐藏。<b>只能在场景图属主线程（渲染回调）调用。</b>
+    /// </summary>
+    public void ApplyTrajectory(IReadOnlyList<Vector3>? points)
+    {
+        if (points is null || points.Count < 2)
+        {
+            ClearTrajectory();
+            return;
+        }
+
+        _trajectoryPoints = points.Count;
+        _trajectory.SetPoints(points);
+        _trajectory.Visible = true;
+    }
+
+    /// <summary>清空并隐藏规划轨迹（复位 / 停止时用）。属主线程调用。</summary>
+    public void ClearTrajectory()
+    {
+        _trajectoryPoints = 0;
+        _trajectory.SetPoints([]);
+        _trajectory.Visible = false;
+    }
+
+    /// <summary>按界面开关对齐轨迹可见性（无轨迹时始终隐藏）。属主线程调用。</summary>
+    public void SetTrajectoryVisible(bool visible) => _trajectory.Visible = visible && _trajectoryPoints >= 2;
+
+    /// <summary>
+    /// 应用一帧增量网格（<c>/mesh</c>）：把每个块换算成库的 <see cref="MeshChunkUpdate"/>
+    /// 推进 <see cref="MeshSink"/>，再在场景边界 <c>Apply()</c> 一次。属主线程调用。
+    /// </summary>
+    public void ApplyMeshFrame(MeshFrameData frame)
+    {
+        foreach (MeshChunkData chunk in frame.Chunks)
+        {
+            if (chunk.Remove)
+            {
+                _meshSink.Push(MeshChunkUpdate.Remove(chunk.Id));
+                continue;
+            }
+
+            int verts = chunk.Positions.Length / 3;
+            if (verts <= 0)
+                continue;
+
+            // 库的顶点布局是交错的 pos3 | uv2 | normal3 | tangent3（11 floats/顶点）；
+            // 协议只给 pos + 可选 normal，其余占位。三角汤 → 隐式索引 0..verts-1。
+            var interleaved = new float[verts * 11];
+            for (int v = 0; v < verts; v++)
+            {
+                int o = v * 11;
+                interleaved[o + 0] = chunk.Positions[v * 3 + 0];
+                interleaved[o + 1] = chunk.Positions[v * 3 + 1];
+                interleaved[o + 2] = chunk.Positions[v * 3 + 2];
+                if (chunk.Normals is { } normals)
+                {
+                    interleaved[o + 5] = normals[v * 3 + 0];
+                    interleaved[o + 6] = normals[v * 3 + 1];
+                    interleaved[o + 7] = normals[v * 3 + 2];
+                }
+                else
+                {
+                    interleaved[o + 7] = 1f; // 无法线时给 (0,0,1)
+                }
+            }
+
+            var indices = new uint[verts];
+            for (int i = 0; i < verts; i++)
+                indices[i] = (uint)i;
+
+            var origin = new Vector3(chunk.OriginX, chunk.OriginY, chunk.OriginZ);
+            _meshSink.Push(new MeshChunkUpdate(chunk.Id, origin, interleaved, indices, chunk.Revision, null));
+        }
+
+        _meshSink.Apply();
+    }
+
+    /// <summary>移除全部网格块（关闭 /mesh 显示时用）。属主线程调用。</summary>
+    public void ClearMesh() => _meshSink.Clear();
+
+    /// <summary>当前网格块数（诊断用）。</summary>
+    public long MeshChunkCount => _meshSink.ChunkCount;
+
+    /// <summary>
+    /// 相机复位：库的默认机位 + 对准整机。
+    ///
+    /// <para>
+    /// 库的默认机位（目标原点、距离 5 m）是给「几米见方」的场景设计的，
+    /// 而一台 6 轴机械臂只有 0.8 m 左右 —— 不重新取景的话，整机在面板里只有指甲盖大。
+    /// 取景按包围球算，所以换成别的机型（更大或更小）也自动合适。
+    /// </para>
+    /// </summary>
+    public void ResetView()
+    {
+        Camera camera = Graph.Camera;
+        camera.Reset();
+
+        if (MachineBounds is not { } bounds)
+            return;
+
+        camera.Target = bounds.Center;
+
+        // 包围球恰好占满视野竖直方向所需距离 = r / sin(FOV/2)，再留 25% 边距。
+        // r 取包围盒对角线的一半（Bound 0.1.0 只给 Min/Max/Center/Size）。
+        float radius = MathF.Max(bounds.Size.Length() * 0.5f, 0.05f);
+        camera.Distance = radius / MathF.Sin(camera.Fov * MathF.PI / 360f) * 1.25f;
+    }
+
+    public void Dispose() => Graph.Dispose();
+
+    /// <summary>按「首选 → 兜底」的顺序加载第一个存在的模型，并记录每一步的结果。</summary>
+    private void LoadRobot()
+    {
+        foreach (string relativePath in new[] { DefaultModelRelativePath, FallbackModelRelativePath })
+        {
+            if (ResolveAssetFile(relativePath) is not { } fullPath)
+            {
+                _log.AppendLine($"未找到 {relativePath}");
+                continue;
+            }
+
+            try
+            {
+                RobotModel robot = RobotModel.ParseFile(fullPath);
+                Graph.Add(robot); // 与其它 GameObject 平等入场景；库的场景是 Z-up，基座就在 z=0
+                Robot = robot;
+                ModelPath = fullPath;
+                MachineBounds = ComputeBounds(robot);
+                _log.Append($"已加载 {Path.GetFileName(fullPath)}（{robot.DrivableJointCount} 个可驱动关节）");
+                return;
+            }
+            catch (Exception ex)
+            {
+                // 解析失败要能落到下一个候选，而不是让整个 3D 面板消失。
+                _log.AppendLine($"加载失败，改用下一个模型：{relativePath} —— {ex.Message}");
+            }
+        }
+
+        _log.Append("无可用模型，仅显示网格与坐标轴");
+    }
+
+    /// <summary>
+    /// 资源文件的绝对路径，不存在则返回 null。
+    /// 以 <see cref="AppContext.BaseDirectory"/> 为根，因此程序从哪个工作目录启动都不影响加载。
+    /// </summary>
+    private static string? ResolveAssetFile(string relativePath)
+    {
+        string fullPath = Path.GetFullPath(relativePath, Path.Combine(AppContext.BaseDirectory, AssetsFolder));
+        return File.Exists(fullPath) ? fullPath : null;
+    }
+
+    /// <summary>
+    /// 整机包围盒：把每个带网格节点的包围盒 8 个角变换到场景空间后合并。
+    /// 只取包围盒角点、不遍历顶点 —— 十万级顶点的网格也不会拖慢启动。
+    /// </summary>
+    private static Bounds? ComputeBounds(GameObject root)
+    {
+        var corners = new List<Vector3>(64);
+        Collect(root, corners);
+        return corners.Count > 0 ? Bounds.FromPoints(corners) : null;
+
+        static void Collect(GameObject node, List<Vector3> into)
+        {
+            if (node.MeshData is { } mesh)
+            {
+                Bounds local = mesh.ComputeBounds();
+                for (int i = 0; i < 8; i++)
+                {
+                    into.Add(node.Transform.LocalToWorld(new Vector3(
+                        (i & 1) == 0 ? local.Min.X : local.Max.X,
+                        (i & 2) == 0 ? local.Min.Y : local.Max.Y,
+                        (i & 4) == 0 ? local.Min.Z : local.Max.Z)));
+                }
+            }
+
+            foreach (Transform child in node.Transform.Children)
+                Collect(child.Owner, into);
+        }
+    }
+}

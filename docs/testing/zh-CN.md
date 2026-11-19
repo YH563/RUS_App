@@ -23,18 +23,18 @@ export PATH="$PATH:$DOTNET_ROOT"
 dotnet --version        # 期望 10.x
 ```
 
-`RUSTool.UI/preview.sh` 自己会设好上面两行环境变量，所以从脚本入口跑界面不需要手动导出。
+`RUS_App.UI/preview.sh` 自己会设好上面两行环境变量，所以从脚本入口跑界面不需要手动导出。
 
-**它不是唯一入口**：脚本只做了三件事（设 `DOTNET_ROOT`、把工作目录固定到仓库根、建好 `RUSTool.UI/preview/`）。
+**它不是唯一入口**：脚本只做了三件事（设 `DOTNET_ROOT`、把工作目录固定到仓库根、建好 `RUS_App.UI/preview/`）。
 Windows（PowerShell / cmd）或已把 `dotnet` 加进 PATH 的机器直接用等价命令，行为完全一致：
 
 ```powershell
-New-Item -ItemType Directory -Force RUSTool.UI/preview | Out-Null   # 脚本会替你建；--shot 不创建目录
-dotnet run --project RUSTool.UI -- --shot RUSTool.UI/preview/02-engineer-dark.png --dark
-dotnet run --project RUSTool.UI -- --clinical                        # 真实窗口 · 临床模式
-dotnet run --project RUSTool.UI -- --shot RUSTool.UI/preview/05-menu-MenuFile.png --open MenuFile
-dotnet run --project RUSTool.UI -- --shot RUSTool.UI/preview/06-engineer-status.png --status   # 展开状态浮层
-dotnet run --project RUSTool.UI -- --shot RUSTool.UI/preview/08-engineer-torque.png --demo-torque   # 合成状态帧 → 六路曲线
+New-Item -ItemType Directory -Force RUS_App.UI/preview | Out-Null   # 脚本会替你建；--shot 不创建目录
+dotnet run --project RUS_App.UI -- --shot RUS_App.UI/preview/02-engineer-dark.png --dark
+dotnet run --project RUS_App.UI -- --clinical                        # 真实窗口 · 临床模式
+dotnet run --project RUS_App.UI -- --shot RUS_App.UI/preview/05-menu-MenuFile.png --open MenuFile
+dotnet run --project RUS_App.UI -- --shot RUS_App.UI/preview/06-engineer-status.png --status   # 展开状态浮层
+dotnet run --project RUS_App.UI -- --shot RUS_App.UI/preview/08-engineer-torque.png --demo-torque   # 合成状态帧 → 六路曲线
 ```
 
 `--shot` 的路径按**当前工作目录**解析（脚本传的是绝对路径，手敲相对路径就要在仓库根执行）。
@@ -45,10 +45,10 @@ dotnet run --project RUSTool.UI -- --shot RUSTool.UI/preview/08-engineer-torque.
 
 ```bash
 # 整解决方案（Core / UI / Visualization / Charts / Tests）
-dotnet build RUSTool.sln
+dotnet build RUS_App.sln
 
 # 单元测试：只跑纯逻辑层，不需要网络 / 界面 / 显卡
-dotnet test tests/RUSTool.Core.Tests
+dotnet test tests/RUS_App.Core.Tests
 ```
 
 CI 里请**串行**执行 `build` / `test` / `run`：它们共用同一份输出目录，
@@ -58,33 +58,33 @@ CI 里请**串行**执行 `build` / `test` / `run`：它们共用同一份输出
 
 ```bash
 # 1) 真实窗口 + GL：起界面，stderr 会出现 [3d] 就绪 …（含 GPU 与模型加载报告）
-RUSTool.UI/preview.sh window
+RUS_App.UI/preview.sh window
 
 # 2) 临床模式（真实窗口）
-RUSTool.UI/preview.sh clinical
-RUSTool.UI/preview.sh window --clinical     # 等价写法：参数透传
+RUS_App.UI/preview.sh clinical
+RUS_App.UI/preview.sh window --clinical     # 等价写法：参数透传
 
 # 3) 无 GL 时的降级：离屏截图不崩，3D 区显示设计好的空状态
-RUSTool.UI/preview.sh dark                  # 只深色那张
-RUSTool.UI/preview.sh all                   # 七张一次拍全（工程师 / 临床 × 浅色 / 深色 + 状态浮层 + 合成点云 + 合成力矩曲线）
+RUS_App.UI/preview.sh dark                  # 只深色那张
+RUS_App.UI/preview.sh all                   # 七张一次拍全（工程师 / 临床 × 浅色 / 深色 + 状态浮层 + 合成点云 + 合成力矩曲线）
 
 # 4) 展开 3D 视口右上角的机械臂状态浮层（默认收起，静态截图里拍不到那枚按钮的结果）
-RUSTool.UI/preview.sh status                # -> preview/06-engineer-status.png
+RUS_App.UI/preview.sh status                # -> preview/06-engineer-status.png
 
 # 5) 合成点云：造一帧 /sensor 帧（编码 + 解码都走生产代码），投进视口的邮箱
-RUSTool.UI/preview.sh cloud                 # -> preview/07-engineer-cloud.png
-RUSTool.UI/preview.sh window --demo-cloud    # 真实窗口 + GL：真的能看见点云
+RUS_App.UI/preview.sh cloud                 # -> preview/07-engineer-cloud.png
+RUS_App.UI/preview.sh window --demo-cloud    # 真实窗口 + GL：真的能看见点云
 
 # 6) 合成状态帧：推满一屏（600 帧 ≈ 30 s）六路关节力矩曲线 —— 帧按协议的线格式拼一遍、
 #    再用生产的解码器解回来，只跳过 WebSocket 传输
-RUSTool.UI/preview.sh torque                # -> preview/08-engineer-torque.png
-RUSTool.UI/preview.sh window --demo-torque   # 真实窗口：曲线跟着合成帧长出来
+RUS_App.UI/preview.sh torque                # -> preview/08-engineer-torque.png
+RUS_App.UI/preview.sh window --demo-torque   # 真实窗口：曲线跟着合成帧长出来
 
 # 7) 弹层（菜单是 Popup，不展开拍不到）
-RUSTool.UI/preview.sh popup MenuFile dark
+RUS_App.UI/preview.sh popup MenuFile dark
 ```
 
-截图落在 `RUSTool.UI/preview/`（已在 `.gitignore` 里忽略），
+截图落在 `RUS_App.UI/preview/`（已在 `.gitignore` 里忽略），
 文件名固定为 `01-engineer-light` / `02-engineer-dark` / `03-clinical-light` / `04-clinical-dark` /
 `06-engineer-status`（3D 视口右上角状态浮层展开的那一张）/ `07-engineer-cloud`（合成点云那一张）/
 `08-engineer-torque`（六路关节力矩曲线那一张）。
@@ -117,14 +117,14 @@ grep ' sim ' logs/$(date +%F).log
 
 ## 4. 单元测试覆盖了什么
 
-目前 `dotnet test tests/RUSTool.Core.Tests` 一共 **93 个用例**（54 + 24 + 15），覆盖三块纯逻辑，
+目前 `dotnet test tests/RUS_App.Core.Tests` 一共 **93 个用例**（54 + 24 + 15），覆盖三块纯逻辑，
 都不依赖网络 / 界面 / 图形栈：
 
 - **扫查流程状态机** —— `ScanStateMachineTests.cs`，11 个测试方法，`[Theory]` 展开后 **54 个用例**；
 - **`SensorFrameCodec`** —— `SensorFrameCodecTests.cs`，**24 个用例**（见下一段）；
 - **驱动类型 `RobotDriverCodec` / `RobotSession`** —— `DriverTypeTests.cs`，**15 个用例**（再下一段）。
 
-其一，**`SensorFrameCodec`（24 个用例）**：`tests/RUSTool.Core.Tests/SensorFrameCodecTests.cs`，
+其一，**`SensorFrameCodec`（24 个用例）**：`tests/RUS_App.Core.Tests/SensorFrameCodecTests.cs`，
 锁住 `/sensor` 点云帧的解码契约（协议 §5）—— raw / zstd 两种编码、量化端点与退化包围盒、
 头里只有最小字段时的缺省值，以及坏帧必须返回 `null` + 原因而不是抛异常（头长度不自洽、消息不足
 4 字节、JSON 坏了、点数超上限、payload 长度不符、未知 encoding / 帧类型 / dtype / fields、
@@ -178,14 +178,14 @@ grep ' sim ' logs/$(date +%F).log
 
 | 改动类型 | 至少要做的验证 |
 |---|---|
-| 任何代码改动 | `dotnet build RUSTool.sln` + `dotnet test tests/RUSTool.Core.Tests` |
-| `RUSTool.Core/Communication/` | 起真实后端（或本地 bridge）跑 `preview.sh window`，点「连接」，确认日志里出现 `→ 发送指令` / `← 指令 … 结果` 且状态灯变化；动过 `/sensor` 解码时同时确认日志里有 `[3d] 点云流已接通：首帧 … 点`，或直接 `preview.sh window --demo-cloud` |
-| `RUSTool.Core/Services/` | 点动按住 / 松开（`start_jog` / `stop_jog_decel` 成对出现）；急停后确认回到「空闲」 |
+| 任何代码改动 | `dotnet build RUS_App.sln` + `dotnet test tests/RUS_App.Core.Tests` |
+| `RUS_App.Core/Communication/` | 起真实后端（或本地 bridge）跑 `preview.sh window`，点「连接」，确认日志里出现 `→ 发送指令` / `← 指令 … 结果` 且状态灯变化；动过 `/sensor` 解码时同时确认日志里有 `[3d] 点云流已接通：首帧 … 点`，或直接 `preview.sh window --demo-cloud` |
+| `RUS_App.Core/Services/` | 点动按住 / 松开（`start_jog` / `stop_jog_decel` 成对出现）；急停后确认回到「空闲」 |
 | 驱动 / 连接（`RobotSession`、`SessionViewModel`） | 连上后确认工具栏「真实 / 仿真」由 `get_driver_type` 回读点亮（不是点击即亮）；断开后两个一起变灰、`DriverText` 变「未知」；切换驱动后按钮跟随后端回读值 |
-| `RUSTool.UI/Theme/` | `./preview.sh all` 看七张截图的配色（**必看彩色按钮上的字是不是白的**：急停 `danger`、主操作 `accent`、分段按钮选中态，浅色深色都要看）；`./preview.sh popup MenuFile` 看弹层 |
-| `RUSTool.UI/Views/` | `./preview.sh window` 交互一遍受影响的面板；再 `./preview.sh all` 确认布局没塌；动过 3D 视口右上角的覆盖层时再补一张 `./preview.sh status`（浮层展开态） |
-| `RUSTool.Visualization/` | `./preview.sh window` 看 stderr 的 `[3d] 就绪 …`（GPU + 模型报告）；点云相关改动用 `./preview.sh window --demo-cloud` 看画面与状态行里的「点云 N 点」；再 `./preview.sh dark` 确认无 GL 时降级不崩 |
-| `RUSTool.Charts/` | `./preview.sh torque` 看六条曲线（离线也能看见：2D 不需要 GL）；再 `./preview.sh all` 对比 `light` / `dark` 两张，确认线色不变、卡片与文字跟着换肤；改过窗口长度时确认卡片头右侧的「N s · M 帧」与图上点数一致。曲线数值的正确性目前**没有单测**（图表是绘制层），靠这张图与 HUD 读数互相印证 |
+| `RUS_App.UI/Theme/` | `./preview.sh all` 看七张截图的配色（**必看彩色按钮上的字是不是白的**：急停 `danger`、主操作 `accent`、分段按钮选中态，浅色深色都要看）；`./preview.sh popup MenuFile` 看弹层 |
+| `RUS_App.UI/Views/` | `./preview.sh window` 交互一遍受影响的面板；再 `./preview.sh all` 确认布局没塌；动过 3D 视口右上角的覆盖层时再补一张 `./preview.sh status`（浮层展开态） |
+| `RUS_App.Visualization/` | `./preview.sh window` 看 stderr 的 `[3d] 就绪 …`（GPU + 模型报告）；点云相关改动用 `./preview.sh window --demo-cloud` 看画面与状态行里的「点云 N 点」；再 `./preview.sh dark` 确认无 GL 时降级不崩 |
+| `RUS_App.Charts/` | `./preview.sh torque` 看六条曲线（离线也能看见：2D 不需要 GL）；再 `./preview.sh all` 对比 `light` / `dark` 两张，确认线色不变、卡片与文字跟着换肤；改过窗口长度时确认卡片头右侧的「N s · M 帧」与图上点数一致。曲线数值的正确性目前**没有单测**（图表是绘制层），靠这张图与 HUD 读数互相印证 |
 | 模型资产（`Assets/Models/`） | 检查 `LoadReport` / stderr 里加载的是预期的 URDF（布局规则见该目录 README） |
 
 ---

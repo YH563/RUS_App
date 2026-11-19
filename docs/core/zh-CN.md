@@ -1,8 +1,8 @@
-# RUSTool.Core（简体中文）
+# RUS_App.Core（简体中文）
 
 > 状态：反映当前实现。配套：`../README.md`（仓库入口）、`../architecture/zh-CN.md`（架构与 ADR）、`../protocol/zh-CN.md`（bridge 协议）、`../ui/zh-CN.md`（界面层）、`../testing/zh-CN.md`（怎么跑测试）。
 
-`RUSTool.Core` 是本仓库的**纯逻辑层**：对外只提供四类东西 —— 通信客户端、机器人业务服务、流程状态机、日志契约。它不认识 Avalonia / XAML / Silk.NET / OpenGL，也不认识 LiveCharts / SkiaSharp，因此可以在没有界面、没有显卡、没有网络的情况下被单测覆盖。
+`RUS_App.Core` 是本仓库的**纯逻辑层**：对外只提供四类东西 —— 通信客户端、机器人业务服务、流程状态机、日志契约。它不认识 Avalonia / XAML / Silk.NET / OpenGL，也不认识 LiveCharts / SkiaSharp，因此可以在没有界面、没有显卡、没有网络的情况下被单测覆盖。
 
 ---
 
@@ -10,17 +10,17 @@
 
 | 命名空间 | 目录 | 职责 | 关键类型 |
 |---|---|---|---|
-| `RUSTool.Communication` | `Communication/` | 与 bridge 的传输：三条通道的连接、指令 / 回执匹配、状态流与感知流接收、二进制帧解码、断线重连 | `BridgeClient`、`ConnectionManager`、`BridgeProtocol`、`SensorFrameCodec`、`Channels` / `Commands` / `Events` / `SensorTypes` |
-| `RUSTool.Services.Robot` | `Services/Robot/` | 机器人业务：类型化指令 + 共享会话状态与模式互斥 | `IRobotService`、`RobotService`、`RobotSession`、`JogParameters` |
-| `RUSTool.Services.Robot.Workflows` | `Services/Robot/Workflows/` | 流程编排：把无状态指令串成有顺序的流程（只描述「状态怎么变」） | `ScanStateMachine`、`ScanStage`、`ScanTrigger` |
-| `RUSTool.Services.Logging` | `Services/Logging/` | 日志契约（实现留在界面层） | `ILogService`、`LogEntry`、`LogLevel` |
+| `RUS_App.Communication` | `Communication/` | 与 bridge 的传输：三条通道的连接、指令 / 回执匹配、状态流与感知流接收、二进制帧解码、断线重连 | `BridgeClient`、`ConnectionManager`、`BridgeProtocol`、`SensorFrameCodec`、`Channels` / `Commands` / `Events` / `SensorTypes` |
+| `RUS_App.Services.Robot` | `Services/Robot/` | 机器人业务：类型化指令 + 共享会话状态与模式互斥 | `IRobotService`、`RobotService`、`RobotSession`、`JogParameters` |
+| `RUS_App.Services.Robot.Workflows` | `Services/Robot/Workflows/` | 流程编排：把无状态指令串成有顺序的流程（只描述「状态怎么变」） | `ScanStateMachine`、`ScanStage`、`ScanTrigger` |
+| `RUS_App.Services.Logging` | `Services/Logging/` | 日志契约（实现留在界面层） | `ILogService`、`LogEntry`、`LogLevel` |
 
 ```
-RUSTool.UI（界面层）
+RUS_App.UI（界面层）
      │ 只依赖这些接口 / 门面
      ▼
 ┌──────────────────────────────────────────────────────────┐
-│ RUSTool.Core                                             │
+│ RUS_App.Core                                             │
 │  IRobotService ──► RobotService ──┐                      │
 │  ILogService（契约）               │                      │
 │  RobotSession（共享状态 + 仲裁）    ▼                      │
@@ -34,7 +34,7 @@ RUSTool.UI（界面层）
                     后端 bridge（/control /state /sensor）
 ```
 
-> **命名空间与工程名刻意不一致**：工程叫 `RUSTool.Core`，但类型仍在 `RUSTool.*` 下 —— 拆分工程之前写下的 `using` 一行都不用改（`RUSTool.Core.csproj` 的 `RootNamespace` 也设成了 `RUSTool`，保证今后新增文件不会落到 `RUSTool.Core.*`）。
+> **命名空间与工程名刻意不一致**：工程叫 `RUS_App.Core`，但类型仍在 `RUS_App.*` 下 —— 拆分工程之前写下的 `using` 一行都不用改（`RUS_App.Core.csproj` 的 `RootNamespace` 也设成了 `RUS_App`，保证今后新增文件不会落到 `RUS_App.Core.*`）。
 >
 > 本层只有两个第三方依赖，都不碰 UI 框架：
 > `CommunityToolkit.Mvvm`（只用 `ObservableObject` 一个基类，即 `INotifyPropertyChanged` 的实现）与
@@ -435,7 +435,7 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
    `Ready + PlanDone => Ready`）让迟到的那条信号无害；阶段真变了才触发 `StageChanged`。
 6. `PreScanDone` 由阶段**推导**（`Stage is not (Idle or PreScanning)`），不单独存字段。
 
-> **接线现状**：状态机目前只被 `tests/RUSTool.Core.Tests` 使用；界面侧的
+> **接线现状**：状态机目前只被 `tests/RUS_App.Core.Tests` 使用；界面侧的
 > `ScanWorkflowViewModel` 仍以 `ScanStep` 列表 + 回执 / 事件双来源推进步骤。接线计划见路线图。
 
 ---
@@ -453,7 +453,7 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
 它们只由 `string` / `bool` 组成，不含 UI 类型，所以放在纯逻辑层并不违反约束。
 
 **线程安全约定**：`ILogService.Log` 允许从后台线程调用（`/state` 状态流、图形栈日志都在后台线程），
-由**实现**负责 marshal 到 UI 线程 —— 这也是契约留在 Core、实现留在 `RUSTool.UI` 的原因。
+由**实现**负责 marshal 到 UI 线程 —— 这也是契约留在 Core、实现留在 `RUS_App.UI` 的原因。
 
 ---
 
@@ -490,7 +490,7 @@ Core 内部**不启动任何后台任务**，也不读取任何配置 —— 连
 | 反例 | 为什么不行 |
 |---|---|
 | 在 VM 里写 `"movej"` / `"plan"` 等协议字符串 | 协议变更会散落到界面层；应只经 `IRobotService` |
-| 在 `RUSTool.Core` 里 `using Avalonia.*` | 编译不过，正是这条约束在起作用 |
+| 在 `RUS_App.Core` 里 `using Avalonia.*` | 编译不过，正是这条约束在起作用 |
 | VM 自己 `new BridgeClient()` / `new LogService()` | 破坏「唯一组合根」，换后端要改多处 |
 | 绕过 `TryFire()` 直接改 `Stage`（或自己拼 bool 门控） | 非法状态会重新出现；门控与按钮置灰会不一致 |
 | 在 VM 里保存 `IsConnected` 的副本 | 与 `RobotSession` 双份状态 → 不同步 |

@@ -9,6 +9,6 @@
 # 运行期日志（LogService 默认写入 "logs"）
 logs/
 
-# 界面截图：由 RUSTool.UI/preview.sh 本地生成，属临时产物
-RUSTool.UI/preview/
+# 界面截图：由 RUS_App.UI/preview.sh 本地生成，属临时产物
+RUS_App.UI/preview/
 .vs/

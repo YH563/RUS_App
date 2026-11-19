@@ -1,4 +1,4 @@
-# RUSTool 架构设计（简体中文）
+# RUS_App 架构设计（简体中文）
 
 > 状态：反映当前实现。配套文档：[`../README.md`](../README.md)（仓库入口）、[`../core/zh-CN.md`](../core/zh-CN.md)、[`../protocol/zh-CN.md`](../protocol/zh-CN.md)、[`../ui/zh-CN.md`](../ui/zh-CN.md)、[`../visualization/zh-CN.md`](../visualization/zh-CN.md)、[`../charts/zh-CN.md`](../charts/zh-CN.md)、[`../testing/zh-CN.md`](../testing/zh-CN.md)。
 
@@ -11,28 +11,29 @@
 **目标**
 
 - 超声扫查机器人的**上位机**：真机 / 仿真两种驱动共用一套界面与业务逻辑（`switch_driver` 切换）。
-- 界面（Avalonia）不认识协议字符串；业务层（`RUSTool.Core`）不认识界面与图形栈。
+- 配套后端为 [`RUS_Engine`](https://github.com/YH563/RUS_Engine)：本仓库通过 WebSocket bridge 与它通信。
+- 界面（Avalonia）不认识协议字符串；业务层（`RUS_App.Core`）不认识界面与图形栈。
 - 两套使用者（工程师 / 临床）共享同一份业务状态与同一个流程状态机，只是「投影」不同，业务逻辑不复制。
 - 同一份组装既可起真实窗口，也可离屏截图 —— 预览的界面就是运行时那个界面。
 
 **设计原则（按优先级）**
 
-1. **单一依赖方向**：`RUSTool.UI` → `RUSTool.Core` / `RUSTool.Visualization` / `RUSTool.Charts` / `RUSTool.Replay` / `RUSTool.Settings`，禁止反向引用（编译器强制）。
-2. **纯逻辑与框架分离**：`RUSTool.Core` 不得出现 Avalonia / XAML / Silk.NET / OpenGL / LiveCharts —— 写了就编译不过。
+1. **单一依赖方向**：`RUS_App.UI` → `RUS_App.Core` / `RUS_App.Visualization` / `RUS_App.Charts` / `RUS_App.Replay` / `RUS_App.Settings`，禁止反向引用（编译器强制）。
+2. **纯逻辑与框架分离**：`RUS_App.Core` 不得出现 Avalonia / XAML / Silk.NET / OpenGL / LiveCharts —— 写了就编译不过。
 3. **接口在 Core，实现在界面层**：范例 `ILogService`（契约在 Core，`LogService` 在界面层，需要 `Dispatcher.UIThread`）。
-4. **图形栈各有唯一出口**：Silk.NET / OpenGL / `RobotSimulation` 只出现在 `RUSTool.Visualization`；LiveCharts / SkiaSharp 只出现在 `RUSTool.Charts`；`.rusrec` 读取 / CDR / 回放引擎只在 `RUSTool.Replay`；全局参数读写只在 `RUSTool.Settings`。
+4. **图形栈各有唯一出口**：Silk.NET / OpenGL / `RobotSimulation` 只出现在 `RUS_App.Visualization`；LiveCharts / SkiaSharp 只出现在 `RUS_App.Charts`；`.rusrec` 读取 / CDR / 回放引擎只在 `RUS_App.Replay`；全局参数读写只在 `RUS_App.Settings`。
 5. **状态变化只有一个入口**：流程走 `ScanStateMachine.TryFire()`，操作模式走 `RobotSession.TryEnter*` / `ExitToIdle`，连接类动作走 `SessionViewModel`。
 
 ---
 
 ## 2. 包含的工程与依赖方向
 
-依赖方向**单向**，由编译器强制：`RUSTool.UI`（界面）→ `RUSTool.Core`（逻辑）、`RUSTool.Visualization`（3D 图形栈隔离容器）、`RUSTool.Charts`（2D 图表栈隔离容器）、`RUSTool.Replay`（本地回放隔离容器）、`RUSTool.Settings`（全局参数）。`RUSTool.Replay` → `RUSTool.Core`（只借两个数据契约），其余库互不引用。
+依赖方向**单向**，由编译器强制：`RUS_App.UI`（界面）→ `RUS_App.Core`（逻辑）、`RUS_App.Visualization`（3D 图形栈隔离容器）、`RUS_App.Charts`（2D 图表栈隔离容器）、`RUS_App.Replay`（本地回放隔离容器）、`RUS_App.Settings`（全局参数）。`RUS_App.Replay` → `RUS_App.Core`（只借两个数据契约），其余库互不引用。
 
 ```
-RUSTool.sln
+RUS_App.sln
 │
-├── RUSTool.Core/            ← 类库 · 纯逻辑层（不得引用 Avalonia / XAML / 图形栈）
+├── RUS_App.Core/            ← 类库 · 纯逻辑层（不得引用 Avalonia / XAML / 图形栈）
 │   ├── Communication/       ← 前端通信客户端（连 bridge 的那一层）
 │   │                          · BridgeClient.cs        — 对外门面（唯一公共入口，供 UI/VM 调用）
 │   │                          · ConnectionManager.cs   — 连接建立 / 收发循环 / 断线重连 / 退避
@@ -48,13 +49,13 @@ RUSTool.sln
 │       └── Logging/
 │           └── ILogService.cs  — 日志契约（实现留在界面层，见下）
 │
-├── RUSTool.UI/               ← WinExe · 唯一的应用项目（Avalonia MVVM）
+├── RUS_App.UI/               ← WinExe · 唯一的应用项目（Avalonia MVVM）
 │   ├── App.axaml(.cs)        ← 应用入口 + 依赖图组装（composition root，全项目唯一 new 实现处）
 │   ├── Program.cs            ← 启动 + 离屏截图模式（--shot / --clinical / --dark / --status / --demo-cloud / --demo-torque）
 │   ├── Services/Logging/
 │   │   ├── LogService.cs     — ILogService 的 Avalonia 实现（Dispatcher marshal + 落盘）
 │   │   └── SimulationLogSink.cs — 把图形栈的日志转手写进 LogService（实现 ISimulationLogSink）
-│   ├── Theme/                ← 设计系统（原 RUSTool.Theme 工程已并入；只含 XAML，不产出 C# 类型）
+│   ├── Theme/                ← 设计系统（原 RUS_App.Theme 工程已并入；只含 XAML，不产出 C# 类型）
 │   │   ├── Theme.axaml       — 唯一入口（必须排在 FluentTheme 之后加载）
 │   │   ├── Tokens/           — Palette / Semantic / Metrics / Typography
 │   │   ├── Bridges/Fluent.axaml — 把 Fluent 的资源键重定向到语义色
@@ -68,7 +69,7 @@ RUSTool.sln
 │   ├── app.manifest          ← 应用程序清单
 │   └── preview.sh            ← 一条命令跑界面 / 拍截图
 │
-├── RUSTool.Visualization/    ← 类库 · 3D 图形栈的隔离容器（Silk.NET / OpenGL 只在这里出现）
+├── RUS_App.Visualization/    ← 类库 · 3D 图形栈的隔离容器（Silk.NET / OpenGL 只在这里出现）
 │   ├── Controls/
 │   │   └── RobotViewport.cs  — 内嵌 3D 视口（OpenGlControlBase）：GL 生命周期 + 每帧 + 相机 / 拾取
 │   ├── Scene/
@@ -79,7 +80,7 @@ RUSTool.sln
 │   ├── Assets/Models/        — URDF + mesh（随编译复制到输出目录；见该目录 README）
 │   └── README.md             — 工程级说明（导航到 docs/visualization/zh-CN.md、Assets/Models/README.md）
 │
-├── RUSTool.Charts/           ← 类库 · 2D 图表栈的隔离容器（LiveCharts / SkiaSharp 只在这里出现）
+├── RUS_App.Charts/           ← 类库 · 2D 图表栈的隔离容器（LiveCharts / SkiaSharp 只在这里出现）
 │   ├── Controls/
 │   │   ├── RobotStatePanel.axaml(.cs) — 曲线面板：一路一行（六行等分铺满）+ 行头色标/名字/读数
 │   │   │                               + 空数据态（界面只给两个东西：Rows 集合与 IsConnected）
@@ -94,52 +95,52 @@ RUSTool.sln
 │   │   └── StateChannel.cs   — 一路可画量：名字 + 单位（本层不做换算）
 │   └── README.md             — 工程级说明（导航到 docs/charts/zh-CN.md）
 │
-├── RUSTool.Replay/           ← 类库 · 本地回放隔离容器（回放职责已由后端移交前端）
+├── RUS_App.Replay/           ← 类库 · 本地回放隔离容器（回放职责已由后端移交前端）
 │   ├── RusRec.cs             — .rusrec 容器读取（头/通道表/记录扫描/CRC/尾索引）
 │   ├── CdrReader.cs          — 极简 ROS CDR 读取（对齐/序列/字符串/Time）
 │   ├── RecPayloadDecoder.cs  — payload → StateFrame / 点云（复用 SensorFrameCodec 反量化）
 │   ├── RecordingsLibrary.cs  — 录音目录发现（*.rusrec，文件名升序）
 │   └── LocalReplayPlayer.cs  — 回放引擎（时间轴 / seek / 倍速 / 单步；事件在后台线程）
 │
-├── RUSTool.Settings/         ← 类库 · 全局参数（录音目录 / bridge 地址…）
+├── RUS_App.Settings/         ← 类库 · 全局参数（录音目录 / bridge 地址…）
 │   ├── AppSettings.cs        — 可序列化模型（带默认值）
-│   ├── ISettingsStore.cs / JsonSettingsStore.cs — JSON 持久化（~/.config/RUSTool/settings.json）
+│   ├── ISettingsStore.cs / JsonSettingsStore.cs — JSON 持久化（~/.config/RUS_App/settings.json）
 │   └── SettingsService.cs    — 绑定用服务（改动即落盘 + 变更通知）
 │
 ├── docs/                     ← 分模块文档（中文）：architecture / core / protocol / ui / visualization / charts / testing
 │                               索引见 docs/README.md
 │
-├── tests/RUSTool.Core.Tests/ ← 单元测试（xUnit · 不依赖网络 / 界面 / 图形栈）
+├── tests/RUS_App.Core.Tests/ ← 单元测试（xUnit · 不依赖网络 / 界面 / 图形栈）
 │   └── ScanStateMachineTests.cs
-└── tests/RUSTool.Replay.Tests/ ← 回放单测（.rusrec 容器 / CDR / 目录 / 引擎）
+└── tests/RUS_App.Replay.Tests/ ← 回放单测（.rusrec 容器 / CDR / 目录 / 引擎）
 ```
 
 ## 3. 项目边界规则
 
 | 规则 | 内容 |
 |---|---|
-| **依赖单向** | `RUSTool.UI` → `Core` / `Visualization` / `Charts` / `Replay` / `Settings`；`Replay` → `Core`。各库都不得反向引用界面层 |
-| **Core 不认识 UI** | `RUSTool.Core` 内不得出现 `Avalonia.*`、XAML、窗口/控件类型；写了就编译不过 |
+| **依赖单向** | `RUS_App.UI` → `Core` / `Visualization` / `Charts` / `Replay` / `Settings`；`Replay` → `Core`。各库都不得反向引用界面层 |
+| **Core 不认识 UI** | `RUS_App.Core` 内不得出现 `Avalonia.*`、XAML、窗口/控件类型；写了就编译不过 |
 | **接口在 Core，实现在界面层** | 范例：`ILogService` 在 Core，`LogService` 在界面层（需 `Dispatcher.UIThread`） |
-| **命名空间不随项目名变** | `RUSTool.Core` 内的类型命名空间仍是 `RUSTool.Communication.*` / `RUSTool.Services.*`，与拆分前完全一致，故调用方 `using` 无需改动 |
-| **设计系统不单独成工程** | 令牌与控件样式放在 `RUSTool.UI/Theme/`，只含 XAML 资源；不产出 C# 类型，也不依赖任何业务代码 |
-| **图形栈只在一个工程里** | `Silk.NET` / `OpenGL` / `RobotSimulation` 只出现在 `RUSTool.Visualization`，`LiveCharts` / `SkiaSharp` 只出现在 `RUSTool.Charts`；其余工程都不得引用它们 |
-| **回放只在一个工程里** | `.rusrec` 容器解析 / ROS CDR 解码 / 回放引擎只出现在 `RUSTool.Replay`（不引用 Avalonia）；`RUSTool.UI` 只经 `LocalReplayPlayer` + `SettingsService` 两个契约使用它 |
-| **全局参数只在一个工程里** | 设置的读取 / 落盘只在 `RUSTool.Settings`；界面直接绑定 `SettingsService`，不在各处散落硬编码或自读文件 |
-| **界面只认识 3D 图形契约** | `RUSTool.UI` 允许出现的 3D 图形类型只有三个：`RobotViewport`（控件；数据入口是纯 `float` 列表与 `SubmitPointCloud(PointCloudFrame)`）、`PointCloudFrame`（点云帧的形状）与 `ISimulationLogSink`（日志出口）—— 图形栈换实现（或再换一个引擎）界面代码不用改 |
-| **界面只认识图表契约** | `RUSTool.UI` 允许出现的图表类型只有 `RobotStatePanel`（控件；数据入口是 `Rows` + `PushFrame`）与行模型 `RobotStateRow` / `RobotStateRows`（建行 / 推帧 / 清空）—— 换图表库界面代码不用改 |
+| **命名空间不随项目名变** | `RUS_App.Core` 内的类型命名空间仍是 `RUS_App.Communication.*` / `RUS_App.Services.*`，与拆分前完全一致，故调用方 `using` 无需改动 |
+| **设计系统不单独成工程** | 令牌与控件样式放在 `RUS_App.UI/Theme/`，只含 XAML 资源；不产出 C# 类型，也不依赖任何业务代码 |
+| **图形栈只在一个工程里** | `Silk.NET` / `OpenGL` / `RobotSimulation` 只出现在 `RUS_App.Visualization`，`LiveCharts` / `SkiaSharp` 只出现在 `RUS_App.Charts`；其余工程都不得引用它们 |
+| **回放只在一个工程里** | `.rusrec` 容器解析 / ROS CDR 解码 / 回放引擎只出现在 `RUS_App.Replay`（不引用 Avalonia）；`RUS_App.UI` 只经 `LocalReplayPlayer` + `SettingsService` 两个契约使用它 |
+| **全局参数只在一个工程里** | 设置的读取 / 落盘只在 `RUS_App.Settings`；界面直接绑定 `SettingsService`，不在各处散落硬编码或自读文件 |
+| **界面只认识 3D 图形契约** | `RUS_App.UI` 允许出现的 3D 图形类型只有三个：`RobotViewport`（控件；数据入口是纯 `float` 列表与 `SubmitPointCloud(PointCloudFrame)`）、`PointCloudFrame`（点云帧的形状）与 `ISimulationLogSink`（日志出口）—— 图形栈换实现（或再换一个引擎）界面代码不用改 |
+| **界面只认识图表契约** | `RUS_App.UI` 允许出现的图表类型只有 `RobotStatePanel`（控件；数据入口是 `Rows` + `PushFrame`）与行模型 `RobotStateRow` / `RobotStateRows`（建行 / 推帧 / 清空）—— 换图表库界面代码不用改 |
 
 ## 4. 分层调用关系
 
 ```
 View  ← 绑定 →  ViewModel                    ┐
-                      ↓                      │ RUSTool.UI（界面层）
+                      ↓                      │ RUS_App.UI（界面层）
               Styles / 主题语义类             ┘
                       │
           ┌───────────┴───────────┐
           ▼                       ▼
      IRobotService            ILogService    ┐
-          ↓                       ↑          │ RUSTool.Core（逻辑层）
+          ↓                       ↑          │ RUS_App.Core（逻辑层）
      RobotService            (契约)          │
           ↓                                  │
      BridgeClient  →  ConnectionManager      ┘
@@ -154,17 +155,17 @@ View  ← 绑定 →  ViewModel                    ┐
 
 | 层 | 所属项目 | 职责 | 示例 |
 |---|---|---|---|
-| **Communication** | `RUSTool.Core` | 与 bridge 通信：三条通道的连接、指令下发/回执匹配、状态流与感知流接收、二进制帧解码、断线重连 | `BridgeClient`、`ConnectionManager`、`BridgeProtocol`、`SensorFrameCodec` |
-| **Services.Robot** | `RUSTool.Core` | 机器人业务：类型化指令、共享会话状态与模式互斥仲裁 | `IRobotService`、`RobotService`、`RobotSession` |
-| **Services.Robot.Workflows** | `RUSTool.Core` | 流程编排：把无状态指令串成有顺序的流程；状态机只描述「状态怎么变」，不负责发命令 | `ScanStateMachine` |
-| **Services.Logging（契约）** | `RUSTool.Core` | 日志抽象 | `ILogService` |
-| **Services.Logging（实现）** | `RUSTool.UI` | Avalonia 实现：集合更新 marshal 到 UI 线程 + 落文件；也是图形栈日志的落点 | `LogService`、`SimulationLogSink` |
-| **ViewModels** | `RUSTool.UI` | UI 状态与命令；只依赖 Core 的接口 | `MainViewModel` 及各功能 VM（`TorqueChartViewModel` 只做图表接线：取数组 → `Post` → 交给控件） |
-| **Views** | `RUSTool.UI` | 界面呈现（配色走主题语义类，无值转换器） | AXAML 文件 |
-| **Styles** | `RUSTool.UI` | 应用级布局类 | `AppLayout.axaml` |
-| **Composition Root** | `RUSTool.UI` | 依赖图组装：全项目唯一 new 具体实现的地方 | `App.CreateMainViewModel` |
-| **Visualization** | `RUSTool.Visualization` | 3D 场景与渲染：把图形栈（Silk.NET / OpenGL / RobotSimulation）关在一个工程里，对界面只暴露三个契约（控件 + 帧数据 + 日志出口） | `RobotViewport`（GL 生命周期 + 每帧 + 相机 / 拾取 + 关节 / 点云 / 轨迹投递）、`RobotScene`（URDF 模型 + 关节驱动 + 点云 / 轨迹图层）、`SimulationLogBridge`（库日志接出来） |
-| **Charts** | `RUSTool.Charts` | 2D 曲线：把图表栈（LiveCharts 2 / SkiaSharp）关在一个工程里，对界面只暴露曲线控件与行模型；滚动窗口、通道目录、线色/线宽都留在库内 | `RobotStatePanel`（一路一行、六行等分铺满 + 行头色标/名字/读数 + 空数据态）、`RobotStateRow` / `RobotStateRows`（行模型与推帧入口）、`RobotArmChannels`（通道目录）、`StatePalette` / `ChannelBrushConverter`（线色与行头色标） |
+| **Communication** | `RUS_App.Core` | 与 bridge 通信：三条通道的连接、指令下发/回执匹配、状态流与感知流接收、二进制帧解码、断线重连 | `BridgeClient`、`ConnectionManager`、`BridgeProtocol`、`SensorFrameCodec` |
+| **Services.Robot** | `RUS_App.Core` | 机器人业务：类型化指令、共享会话状态与模式互斥仲裁 | `IRobotService`、`RobotService`、`RobotSession` |
+| **Services.Robot.Workflows** | `RUS_App.Core` | 流程编排：把无状态指令串成有顺序的流程；状态机只描述「状态怎么变」，不负责发命令 | `ScanStateMachine` |
+| **Services.Logging（契约）** | `RUS_App.Core` | 日志抽象 | `ILogService` |
+| **Services.Logging（实现）** | `RUS_App.UI` | Avalonia 实现：集合更新 marshal 到 UI 线程 + 落文件；也是图形栈日志的落点 | `LogService`、`SimulationLogSink` |
+| **ViewModels** | `RUS_App.UI` | UI 状态与命令；只依赖 Core 的接口 | `MainViewModel` 及各功能 VM（`TorqueChartViewModel` 只做图表接线：取数组 → `Post` → 交给控件） |
+| **Views** | `RUS_App.UI` | 界面呈现（配色走主题语义类，无值转换器） | AXAML 文件 |
+| **Styles** | `RUS_App.UI` | 应用级布局类 | `AppLayout.axaml` |
+| **Composition Root** | `RUS_App.UI` | 依赖图组装：全项目唯一 new 具体实现的地方 | `App.CreateMainViewModel` |
+| **Visualization** | `RUS_App.Visualization` | 3D 场景与渲染：把图形栈（Silk.NET / OpenGL / RobotSimulation）关在一个工程里，对界面只暴露三个契约（控件 + 帧数据 + 日志出口） | `RobotViewport`（GL 生命周期 + 每帧 + 相机 / 拾取 + 关节 / 点云 / 轨迹投递）、`RobotScene`（URDF 模型 + 关节驱动 + 点云 / 轨迹图层）、`SimulationLogBridge`（库日志接出来） |
+| **Charts** | `RUS_App.Charts` | 2D 曲线：把图表栈（LiveCharts 2 / SkiaSharp）关在一个工程里，对界面只暴露曲线控件与行模型；滚动窗口、通道目录、线色/线宽都留在库内 | `RobotStatePanel`（一路一行、六行等分铺满 + 行头色标/名字/读数 + 空数据态）、`RobotStateRow` / `RobotStateRows`（行模型与推帧入口）、`RobotArmChannels`（通道目录）、`StatePalette` / `ChannelBrushConverter`（线色与行头色标） |
 | **Data** | ⬜ 待拆为独立项目 | 数据库/持久化 | SQLite、PostgreSQL 仓储实现 |
 | **Infrastructure** | ⬜ 待拆为独立项目 | 跨切面基础设施 | 配置、IoC 容器、异常处理 |
 
@@ -176,7 +177,7 @@ View  ← 绑定 →  ViewModel                    ┐
 /state（后端）→ RobotStatusViewModel.JointsRadians（弧度；界面层只做转发，不换算）
                         │ XAML 绑定 —— 编译期检查，路径写错编译不过
                         ▼
-                  RobotViewport.JointValues（在 RUSTool.Visualization 里）
+                  RobotViewport.JointValues（在 RUS_App.Visualization 里）
                         │ 邮箱：UI 线程写、渲染线程取走（取走即置空，同一帧不会重复应用）
                         ▼
                   RobotScene.ApplyJointValues → URDF 关节的 Transform
@@ -203,7 +204,7 @@ View  ← 绑定 →  ViewModel                    ┐
 也归渲染器 —— 视口短边 × 0.12，夹在 64~240 px，场景那边只剩边距与「画不画」两个开关），
 界面**不再自绘**坐标轴。
 
-2D 那侧是同一条规矩（数据以普通值进来、细节留在库里），只是容器换成了 [`RUSTool.Charts`](../charts/zh-CN.md)：
+2D 那侧是同一条规矩（数据以普通值进来、细节留在库里），只是容器换成了 [`RUS_App.Charts`](../charts/zh-CN.md)：
 界面只给 `Rows` / `IsConnected` 两个绑定、只在 UI 线程推一个 `IReadOnlyList<double>`，
 接口侧的接线见 [`ui/zh-CN.md`](../ui/zh-CN.md) 第 11.4 节。
 
@@ -250,12 +251,12 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
 
 | 编号 | 决策 | 说明 |
 |---|---|---|
-| ADR-001 | 依赖方向单向：`UI → Core`、`UI → Visualization`、`UI → Charts` | 由编译器强制；`RUSTool.Core` 永不引用 Avalonia |
+| ADR-001 | 依赖方向单向：`UI → Core`、`UI → Visualization`、`UI → Charts` | 由编译器强制；`RUS_App.Core` 永不引用 Avalonia |
 | ADR-002 | 协议字符串只出现在 `RobotService` 一层 | 上层只依赖 `IRobotService`，换协议 / 换传输不动界面 |
-| ADR-003 | 命名空间不随工程名变（`RUSTool.Communication.*` / `RUSTool.Services.*`） | 拆分工程后调用方的 `using` 无需改动 |
+| ADR-003 | 命名空间不随工程名变（`RUS_App.Communication.*` / `RUS_App.Services.*`） | 拆分工程后调用方的 `using` 无需改动 |
 | ADR-004 | `ILogService` 契约在 Core，实现在界面层 | 实现需要 `Dispatcher.UIThread`，属框架能力 |
-| ADR-005 | 设计系统不单独成工程 | `Theme/` 只含 XAML 资源、不产出 C# 类型；原 `RUSTool.Theme` 工程已删除 |
-| ADR-006 | 图形栈只出现在隔离容器里 | 3D：`RUSTool.UI` 只认识 `RobotViewport`（数据）与 `ISimulationLogSink`（日志）；2D：只认识 `RobotStatePanel`（数据）与 `RobotStateRow`（行模型） |
+| ADR-005 | 设计系统不单独成工程 | `Theme/` 只含 XAML 资源、不产出 C# 类型；原 `RUS_App.Theme` 工程已删除 |
+| ADR-006 | 图形栈只出现在隔离容器里 | 3D：`RUS_App.UI` 只认识 `RobotViewport`（数据）与 `ISimulationLogSink`（日志）；2D：只认识 `RobotStatePanel`（数据）与 `RobotStateRow`（行模型） |
 | ADR-007 | 全项目唯一组合根 `App.CreateMainViewModel` | 换后端（真机 / 仿真 / 回放）只改这一处；截图与真实启动共用它 |
 | ADR-008 | 零值转换器：状态 → 颜色走主题语义类 | VM 只给互斥布尔量（`IsConnected` / `IsIdle` …），配色只改 `Theme/Tokens/Semantic.axaml` |
 | ADR-009 | 流程用显式状态机（8 阶段）而不是 N 个 bool | 5 个 bool 有 32 种组合、其中 27 种非法；阶段枚举让非法态在类型上不可表示 |
@@ -268,7 +269,7 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
 | ADR-016 | 点动「按住走、松手停」，并处理 `PointerCaptureLost` | 指针被系统抢走时必须补发 `stop_jog_decel`，否则机械臂一直走 |
 | ADR-017 | 截图与正式启动共用组装（`--shot` 复用 `CreateMainViewModel`） | 预览的界面就是运行时那个界面，不会「预览一个不存在的界面」 |
 | ADR-018 | 不放 `global.json` 钉 SDK | 构建必须用 .NET SDK 10（Avalonia 12 源生成器需 Roslyn 4.14+），钉版本反而编译不过 |
-| ADR-019 | 曲线颜色 = 数据身份，**不跟主题走**（`RUSTool.Charts/Controls/StatePalette.cs`） | 同一路数据在浅色 / 深色下必须同色，否则换肤后认不出是哪一路；语义色正好相反（同一控件换主题就该换色），所以曲线色不进 `Tokens/Semantic.axaml` |
+| ADR-019 | 曲线颜色 = 数据身份，**不跟主题走**（`RUS_App.Charts/Controls/StatePalette.cs`） | 同一路数据在浅色 / 深色下必须同色，否则换肤后认不出是哪一路；语义色正好相反（同一控件换主题就该换色），所以曲线色不进 `Tokens/Semantic.axaml` |
 | ADR-020 | 曲线**一路一行**：行在构造时绑定 `ChannelIndex`，行头不再提供「切通道」 | 下拉框切通道要维护「按通道分开的历史 + 切过去就地重填」两套状态，换来的只是「同一行看别的路」；而卡片里几行并排本来就看全了所有路（配色的语义也更干净：一路一色、行头色标 = 线色）。去掉之后行就是一路，历史只剩一条，「切过去历史接不接得上」这类边界情况整个消失 |
 
 ---
@@ -278,24 +279,24 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
 ```
 新功能 → 先问一句「它认识界面吗？」，再决定放哪个项目：
 
-  · 新增指令 / 事件       → RUSTool.Core/Communication/ProtocolConstants.cs 补常量
-  · /sensor 二进制帧      → RUSTool.Core/Communication/SensorFrameCodec.cs（已在用的解码入口；
+  · 新增指令 / 事件       → RUS_App.Core/Communication/ProtocolConstants.cs 补常量
+  · /sensor 二进制帧      → RUS_App.Core/Communication/SensorFrameCodec.cs（已在用的解码入口；
                             新帧类型（image / ultrasound）加在这里，别动 BridgeProtocol 的 JSON 那套）
-  · 点云进场景图          → RUSTool.Visualization/Scene/PointCloudLayer.cs（整帧替换）
+  · 点云进场景图          → RUS_App.Visualization/Scene/PointCloudLayer.cs（整帧替换）
                             + RobotViewport 的邮箱（SubmitPointCloud）；界面层只做适配
-  · 新增业务服务（标定）  → RUSTool.Core/Services/ 下（复用 BridgeClient，或经 IRobotService）
-  · 新增业务流程（标定）  → RUSTool.Core/Services/Robot/Workflows/ 下建两个文件：
+  · 新增业务服务（标定）  → RUS_App.Core/Services/ 下（复用 BridgeClient，或经 IRobotService）
+  · 新增业务流程（标定）  → RUS_App.Core/Services/Robot/Workflows/ 下建两个文件：
                             · XxxStateMachine.cs — 阶段枚举 + 转移表（纯逻辑，配单测）
                             · XxxWorkflow.cs     — 发命令 + 订阅事件 → 驱动状态机
-  · 新增曲线通道（力 / 位置）→ RUSTool.Charts/Data/RobotArmChannels.cs 加一份目录（名字 + 单位），
+  · 新增曲线通道（力 / 位置）→ RUS_App.Charts/Data/RobotArmChannels.cs 加一份目录（名字 + 单位），
                             宿主侧照 TorqueChartViewModel 的样子「取数组 → Post 到 UI 线程 → PushFrame」
-  · 调整曲线外观（线宽 / 线色）→ RUSTool.Charts/Controls/StatePalette.cs
+  · 调整曲线外观（线宽 / 线色）→ RUS_App.Charts/Controls/StatePalette.cs
                             （曲线色是数据身份，不进 Theme 的语义色；布局与文字色照旧走主题令牌）
-  · 新增日志实现          → RUSTool.UI/Services/Logging/（Core 只保留契约）
-  · 新增界面 / VM / 样式   → RUSTool.UI/ 对应目录；配色一律走 Theme/ 的语义类，不要写值转换器
-  · 调整配色 / 控件样式   → RUSTool.UI/Theme/（改 Tokens/Semantic.axaml 即可换肤，控件样式不用动）
-  · 新增数据库（SQLite）  → 另开 RUSTool.Data 项目（Core 依赖它、界面再依赖 Core）
-  · 新增 3D 仿真窗        → 界面加一个 View，渲染侧改 RUSTool.Visualization
+  · 新增日志实现          → RUS_App.UI/Services/Logging/（Core 只保留契约）
+  · 新增界面 / VM / 样式   → RUS_App.UI/ 对应目录；配色一律走 Theme/ 的语义类，不要写值转换器
+  · 调整配色 / 控件样式   → RUS_App.UI/Theme/（改 Tokens/Semantic.axaml 即可换肤，控件样式不用动）
+  · 新增数据库（SQLite）  → 另开 RUS_App.Data 项目（Core 依赖它、界面再依赖 Core）
+  · 新增 3D 仿真窗        → 界面加一个 View，渲染侧改 RUS_App.Visualization
                             （Silk.NET / OpenGL 依赖不得泄漏进界面层与逻辑层；
                               契约见 docs/visualization/zh-CN.md —— 界面只认识
                               RobotViewport（数据）与 ISimulationLogSink（日志））
@@ -305,35 +306,35 @@ Idle ──► PreScanning ──► Posing ──► Planning ──► Ready �
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
-| `RUSTool.Core` | ✅ 已拆出 | Communication + Services.Robot + ILogService 契约 |
-| `RUSTool.UI/Theme` | ✅ 已并入 UI | 设计系统：令牌 + 控件样式，只含 XAML 资源，不产出 C# 类型；原独立 `RUSTool.Theme` 工程已删除 |
-| `RUSTool.UI` | ✅ 已是唯一应用 | 完整应用：界面 + 设计系统（`Theme/`）+ 业务接线（引用 Core）；原 `RUSTool/` 项目已删除 |
-| `RUSTool.Visualization` | ✅ 已拆出 | **3D** 图形栈隔离容器：`RobotViewport`（`OpenGlControlBase` 宿主：GL 生命周期 / 每帧 / 相机拾取）+ `RobotScene`（URDF 模型 + 关节驱动）+ `SimulationLogBridge`（库日志接进项目日志器）+ 随编译复制到输出目录的模型资产 |
-| `RUSTool.Charts` | ✅ 已拆出 | 2D 图表栈隔离容器：`RobotStatePanel`（一路一行、六行等分铺满卡片体 + 行头色标/名字/读数 + 空数据态）+ `RobotStateRow` / `RobotStateRows`（每行一路的滚动历史与推帧入口）+ `RobotArmChannels`（通道目录）+ `StatePalette`（线色 / 行头色标同表）；LiveCharts / SkiaSharp 只在这里，界面侧只剩 `TorqueChartViewModel` 的接线 |
-| `tests/RUSTool.Core.Tests` | ✅ 已建 | 纯逻辑单测 93 个用例（状态机 54 + 点云帧解码 24 + 驱动类型 15）；无需网络 / GL，`dotnet test` 即可跑 |
+| `RUS_App.Core` | ✅ 已拆出 | Communication + Services.Robot + ILogService 契约 |
+| `RUS_App.UI/Theme` | ✅ 已并入 UI | 设计系统：令牌 + 控件样式，只含 XAML 资源，不产出 C# 类型；原独立 `RUS_App.Theme` 工程已删除 |
+| `RUS_App.UI` | ✅ 已是唯一应用 | 完整应用：界面 + 设计系统（`Theme/`）+ 业务接线（引用 Core）；原 `RUS_App/` 项目已删除 |
+| `RUS_App.Visualization` | ✅ 已拆出 | **3D** 图形栈隔离容器：`RobotViewport`（`OpenGlControlBase` 宿主：GL 生命周期 / 每帧 / 相机拾取）+ `RobotScene`（URDF 模型 + 关节驱动）+ `SimulationLogBridge`（库日志接进项目日志器）+ 随编译复制到输出目录的模型资产 |
+| `RUS_App.Charts` | ✅ 已拆出 | 2D 图表栈隔离容器：`RobotStatePanel`（一路一行、六行等分铺满卡片体 + 行头色标/名字/读数 + 空数据态）+ `RobotStateRow` / `RobotStateRows`（每行一路的滚动历史与推帧入口）+ `RobotArmChannels`（通道目录）+ `StatePalette`（线色 / 行头色标同表）；LiveCharts / SkiaSharp 只在这里，界面侧只剩 `TorqueChartViewModel` 的接线 |
+| `tests/RUS_App.Core.Tests` | ✅ 已建 | 纯逻辑单测 93 个用例（状态机 54 + 点云帧解码 24 + 驱动类型 15）；无需网络 / GL，`dotnet test` 即可跑 |
 
-> 原 `RUSTool/` 项目已删除。它的界面能力（语义类配色、主题化）由 `RUSTool.UI` 取代；
+> 原 `RUS_App/` 项目已删除。它的界面能力（语义类配色、主题化）由 `RUS_App.UI` 取代；
 > 业务能力（composition root、连接 / 使能 / 驱动切换、`LogService`、点动「按住走松手停」、
-> 日志自动滚动）已全部迁入 `RUSTool.UI`，协议文档与 `app.manifest` / 图标也一并迁移。
-> `RUSTool.Core` 与测试从未引用该项目，因此删除对它们是零影响（编译器可证）。
+> 日志自动滚动）已全部迁入 `RUS_App.UI`，协议文档与 `app.manifest` / 图标也一并迁移。
+> `RUS_App.Core` 与测试从未引用该项目，因此删除对它们是零影响（编译器可证）。
 
-> `RUSTool.Visualization` 是**新增**工程（不是迁移）：把 3D 内核 `RobotSimulation`
+> `RUS_App.Visualization` 是**新增**工程（不是迁移）：把 3D 内核 `RobotSimulation`
 > （`Core` / `Robot` / `OpenGL`，0.4.1，全部发布在 nuget.org 上）接进 Avalonia。
-> `RUSTool.UI` 只引用它、不引用 Silk.NET；无 GL 时（离屏截图、无显卡机器）它自动降级为设计好的空状态，
+> `RUS_App.UI` 只引用它、不引用 Silk.NET；无 GL 时（离屏截图、无显卡机器）它自动降级为设计好的空状态，
 > 因此 `preview.sh` 的产出与以前一样可用。
 > 库日志经 `SimulationLogBridge` 汇进项目日志器（来源列 `sim`）；总趋势是**图形细节下移给库** ——
 > 例如右下角的朝向坐标轴已从界面自绘改成库自带的 gizmo（0.2.0 新增，默认开启）。
 
-> `RUSTool.Charts` 同为**新增**工程（不是迁移）：原先长在 `RUSTool.UI/Views/Debug/ChartPanel.axaml(.cs)`
+> `RUS_App.Charts` 同为**新增**工程（不是迁移）：原先长在 `RUS_App.UI/Views/Debug/ChartPanel.axaml(.cs)`
 > 里的绘图代码（LiveCharts 选型、线色表、坐标轴与动画开关）整体收进库，那个薄壳文件随之下线 ——
 > 曲线卡片体现在是 `DebugWorkspace.axaml` 里直接放的 `charts:RobotStatePanel`（两个绑定），
 > 中间不再有「卡片体薄壳」这一层。曲线控件一路一行（六行等分铺满卡片体，行头是色标 + 通道名 + 读数），
 > 数据由 `/state` 的 `effort`（六路关节力矩）驱动。
-> `RUSTool.UI` 只留 `TorqueChartViewModel`（取数组 → `Post` → 推帧）；
+> `RUS_App.UI` 只留 `TorqueChartViewModel`（取数组 → `Post` → 推帧）；
 > LiveCharts 的版本约束（**2.1.0-dev-798** —— Avalonia 12 下唯一能正常渲染的版本）
-> 与 SkiaSharp 的「不显式声明、跟着 Avalonia 走」也随图表栈搬到了 `RUSTool.Charts.csproj`。
+> 与 SkiaSharp 的「不显式声明、跟着 Avalonia 走」也随图表栈搬到了 `RUS_App.Charts.csproj`。
 
-> 原 `RUSTool.Theme` 独立工程与 `tools/`（`RUSTool.Theme.Gallery` 主题画廊、
-> `RUSTool.UI.Showcase` 演示副本）也已删除：设计系统整体并入 `RUSTool.UI/Theme/`，
-> 资源 URI 变为 `avares://RUSTool.UI/Theme/...`，`RUSTool.UI.csproj` 不再引用主题工程；
-> 主题对照与界面截图统一由 `RUSTool.UI/preview.sh` 承担。
+> 原 `RUS_App.Theme` 独立工程与 `tools/`（`RUS_App.Theme.Gallery` 主题画廊、
+> `RUS_App.UI.Showcase` 演示副本）也已删除：设计系统整体并入 `RUS_App.UI/Theme/`，
+> 资源 URI 变为 `avares://RUS_App.UI/Theme/...`，`RUS_App.UI.csproj` 不再引用主题工程；
+> 主题对照与界面截图统一由 `RUS_App.UI/preview.sh` 承担。

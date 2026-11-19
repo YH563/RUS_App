@@ -1,8 +1,8 @@
-# RUSTool bridge 协议（WebSocket，简体中文）
+# RUS_App bridge 协议（WebSocket，简体中文）
 
-> 状态：反映当前实现。客户端侧的落地实现见 [`../core/zh-CN.md`](../core/zh-CN.md)；本文是**后端联调时的契约基准**。配套：[`../README.md`](../README.md)、[`../architecture/zh-CN.md`](../architecture/zh-CN.md)。
+> 状态：反映当前实现。客户端侧的落地实现见 [`../core/zh-CN.md`](../core/zh-CN.md)；本文是**与后端 [`RUS_Engine`](https://github.com/YH563/RUS_Engine) 联调时的契约基准**。配套：[`../README.md`](../README.md)、[`../architecture/zh-CN.md`](../architecture/zh-CN.md)。
 
-后端（DriverNode）启动时自动在 `ws://localhost:8765` 开启 WebSocket 服务器；
+后端 [`RUS_Engine`](https://github.com/YH563/RUS_Engine)（DriverNode）启动时自动在 `ws://localhost:8765` 开启 WebSocket 服务器；
 本仓库客户端 `BridgeClient` 的默认地址是 `ws://127.0.0.1:8765`（构造函数参数可改）。
 
 ---
@@ -17,7 +17,7 @@
 | `/pcmap` | 服务器 → 客户端 | 同 `/sensor`（`type=pointcloud`、`scope=map`） | ✅ 已实现：重建融合点云图，复用 `SensorFrameCodec`，覆盖式 |
 | `/mesh` | 服务器 → 客户端 | 二进制帧（`uint32 头长 + JSON 头 + payload`） | ✅ 已实现：增量网格块（`MeshFrameCodec`，zstd/raw + int16 位置 / int8 法线）；可靠有序，默认关 |
 
-> 常量对照：`RUSTool.Core/Communication/ProtocolConstants.cs` 的 `Channels` / `Commands` / `Events` /
+> 常量对照：`RUS_App.Core/Communication/ProtocolConstants.cs` 的 `Channels` / `Commands` / `Events` /
 > `SensorTypes` / `SensorEncodings` / `SensorScopes` 与本文逐条对齐；**改协议先改那份常量**，
 > 客户端不允许出现裸字符串。
 
@@ -210,7 +210,7 @@ result 定长 7 项 `state / records / payload_mib / file_mib / dropped / thrott
 
 - 后端 `replay_*` 指令与 `replayer_node` **已废弃**（仅过渡期保留），新链路不要使用；
   前端代码里对应的 `Commands.Replay*` / `Events.ReplayDone` / `IRobotService.Replay*` 均标了 `[Obsolete]`。
-- 前端实现见子项目 **`RUSTool.Replay`**（容器读取 + CDR 解码 + 回放引擎）+ `RUSTool.Settings`（录音目录）。
+- 前端实现见子项目 **`RUS_App.Replay`**（容器读取 + CDR 解码 + 回放引擎）+ `RUS_App.Settings`（录音目录）。
 - 目录口径：后端 `<output_dir>` 默认 `records`（相对 recorder 进程 cwd）；前端需配置到**同一绝对目录**。
 
 ### 3.8 文件执行
@@ -245,7 +245,7 @@ result 定长 7 项 `state / records / payload_mib / file_mib / dropped / thrott
 ## 4. C# 客户端实现示例（最小对照）
 
 > 本节的示例**只是协议的最小对照代码**（单连接、无重连策略）。仓库里真正在跑的实现是
-> `RUSTool.Core/Communication/` 下的三个类（`BridgeClient` / `ConnectionManager` / `BridgeProtocol`）——
+> `RUS_App.Core/Communication/` 下的三个类（`BridgeClient` / `ConnectionManager` / `BridgeProtocol`）——
 > 两者字段解析必须一致，行为以 [`../core/zh-CN.md`](../core/zh-CN.md) 为准。
 
 ### 4.1 WebSocket 连接
@@ -384,7 +384,7 @@ public partial class MainViewModel : ObservableObject
 ## 5. 感知流（/sensor）：点云二进制帧的解码契约
 
 与 JSON 通路完全分开：**一条 WS 二进制消息 = 一帧**。客户端实现见
-`RUSTool.Core/Communication/SensorFrameCodec.cs`（纯函数，无状态，可单测）。
+`RUS_App.Core/Communication/SensorFrameCodec.cs`（纯函数，无状态，可单测）。
 
 | 项 | 值 |
 |---|---|

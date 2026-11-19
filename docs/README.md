@@ -1,4 +1,4 @@
-# RUSTool 文档
+# RUS_App 文档
 
 > 本仓库文档**只提供中文版本**，与仓库根的 [`../README.md`](../README.md) 共用同一套章节约定（编号章节 + 表格 + 反例）。
 
@@ -8,23 +8,23 @@
 | 模块 | 文档 |
 |---|---|
 | **架构设计** | [`architecture/zh-CN.md`](architecture/zh-CN.md) |
-| **`RUSTool.Core`**（纯逻辑层） | [`core/zh-CN.md`](core/zh-CN.md) |
+| **`RUS_App.Core`**（纯逻辑层） | [`core/zh-CN.md`](core/zh-CN.md) |
 | **bridge 协议** | [`protocol/zh-CN.md`](protocol/zh-CN.md) |
-| **`RUSTool.UI`**（界面层） | [`ui/zh-CN.md`](ui/zh-CN.md) |
-| **`RUSTool.Visualization`**（3D 图形栈隔离容器） | [`visualization/zh-CN.md`](visualization/zh-CN.md) |
-| **`RUSTool.Charts`**（2D 图表栈隔离容器） | [`charts/zh-CN.md`](charts/zh-CN.md) |
-| **`RUSTool.Replay` / `RUSTool.Settings`**（本地回放 / 全局参数） | [`replay/zh-CN.md`](replay/zh-CN.md) |
+| **`RUS_App.UI`**（界面层） | [`ui/zh-CN.md`](ui/zh-CN.md) |
+| **`RUS_App.Visualization`**（3D 图形栈隔离容器） | [`visualization/zh-CN.md`](visualization/zh-CN.md) |
+| **`RUS_App.Charts`**（2D 图表栈隔离容器） | [`charts/zh-CN.md`](charts/zh-CN.md) |
+| **`RUS_App.Replay` / `RUS_App.Settings`**（本地回放 / 全局参数） | [`replay/zh-CN.md`](replay/zh-CN.md) |
 | **构建、测试与验证** | [`testing/zh-CN.md`](testing/zh-CN.md) |
 
 ## 工程内文档（就近放）
 
 | 文档 | 内容 |
 |---|---|
-| [`../RUSTool.UI/README.md`](../RUSTool.UI/README.md) | `RUSTool.UI` 工程级说明（导航到本目录） |
-| [`../RUSTool.UI/Theme/README.md`](../RUSTool.UI/Theme/README.md) | 设计系统用法：令牌 / 语义类 / 控件样式 / 弹层圆角 |
-| [`../RUSTool.Visualization/README.md`](../RUSTool.Visualization/README.md) | `RUSTool.Visualization` 工程级说明（导航到本目录） |
-| [`../RUSTool.Charts/README.md`](../RUSTool.Charts/README.md) | `RUSTool.Charts` 工程级说明（导航到本目录） |
-| [`../RUSTool.Visualization/Assets/Models/README.md`](../RUSTool.Visualization/Assets/Models/README.md) | 3D 模型资产的布局规则与加载顺序 |
+| [`../RUS_App.UI/README.md`](../RUS_App.UI/README.md) | `RUS_App.UI` 工程级说明（导航到本目录） |
+| [`../RUS_App.UI/Theme/README.md`](../RUS_App.UI/Theme/README.md) | 设计系统用法：令牌 / 语义类 / 控件样式 / 弹层圆角 |
+| [`../RUS_App.Visualization/README.md`](../RUS_App.Visualization/README.md) | `RUS_App.Visualization` 工程级说明（导航到本目录） |
+| [`../RUS_App.Charts/README.md`](../RUS_App.Charts/README.md) | `RUS_App.Charts` 工程级说明（导航到本目录） |
+| [`../RUS_App.Visualization/Assets/Models/README.md`](../RUS_App.Visualization/Assets/Models/README.md) | 3D 模型资产的布局规则与加载顺序 |
 
 ---
 
@@ -32,11 +32,11 @@
 
 1. [`architecture/zh-CN.md`](architecture/zh-CN.md) — 先看工程边界、依赖方向、分层职责与关键设计决策（ADR）。
 2. [`core/zh-CN.md`](core/zh-CN.md) — 纯逻辑层的公共面：通信客户端、业务服务、流程状态机、日志契约。
-3. [`protocol/zh-CN.md`](protocol/zh-CN.md) — 三条通道、状态帧、请求 / 回执、完整指令表、`/sensor` 点云帧的解码契约（后端联调的契约基准）。
+3. [`protocol/zh-CN.md`](protocol/zh-CN.md) — 三条通道、状态帧、请求 / 回执、完整指令表、`/sensor` 点云帧的解码契约（与后端 [`RUS_Engine`](https://github.com/YH563/RUS_Engine) 联调的契约基准）。
 4. [`ui/zh-CN.md`](ui/zh-CN.md) — 界面层：两类使用者的心智模型、指令分层、主题、组装根与数据流、已知边界。
 5. [`visualization/zh-CN.md`](visualization/zh-CN.md) — 3D 图形栈隔离容器：数据契约（`RobotViewport`）与日志出口。
 6. [`charts/zh-CN.md`](charts/zh-CN.md) — 2D 图表栈隔离容器：曲线行模型、推帧线程契约、空数据态、配色与主题。
-7. [`replay/zh-CN.md`](replay/zh-CN.md) — 本地回放（`.rusrec` 读取 / CDR / 引擎 / 接管）与全局参数（`RUSTool.Settings`）。
+7. [`replay/zh-CN.md`](replay/zh-CN.md) — 本地回放（`.rusrec` 读取 / CDR / 引擎 / 接管）与全局参数（`RUS_App.Settings`）。
 8. [`testing/zh-CN.md`](testing/zh-CN.md) — 构建 SDK 要求、单元测试、界面截图与手工验证清单。
 
 > 仓库根入口见 [`../README.md`](../README.md)。

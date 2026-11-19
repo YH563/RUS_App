@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="using:RUS_App.UI.ViewModels"
+             mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="44"
+             x:Class="RUS_App.UI.Views.Debug.ReplayModule"
+             x:DataType="vm:ReplayViewModel">
+
+    <!--
+      回放传输条：单行、高密度。进度 / 时长都来自后端 replay_status（前端不换算）。
+      后端没有 A/B 循环点、没有导出、没有"后退一步"——所以只保留它真正支持的：
+      回起点 / 快退 / 播放-暂停 / 快进 / 单步 / 停止。
+    -->
+
+    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12" VerticalAlignment="Center">
+
+        <!-- ── 传输键 ──
+             字形（⏮ ▶ ⏹ 等）行高比普通文字高，只靠 MinHeight(32) 会被撑高、与左侧按钮不齐；
+             这里固定 Height=32，和回放条其它控件同高。 -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Button Content="⏮" Height="32" Command="{Binding JumpStartCommand}" />
+            <Button Content="◀◀" Height="32" Command="{Binding SkipBackCommand}" />
+            <Button Classes="accent" Content="{Binding PlayButtonText}" Width="46" Height="32"
+                    Command="{Binding TogglePlayCommand}" />
+            <Button Content="▶▶" Height="32" Command="{Binding SkipForwardCommand}" />
+            <Button Content="⏭" Height="32" Command="{Binding StepForwardCommand}" />
+            <Button Content="⏹" Height="32" Command="{Binding StopCommand}" />
+        </StackPanel>
+
+        <!-- ── 时间轴 + 时间 ──
+             Value 单向绑（进度由后端驱动）；松手时由 code-behind 调 SeekToAsync 定位。 -->
+        <Grid Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="10" VerticalAlignment="Center">
+            <Slider x:Name="Timeline" Grid.Column="0"
+                    Minimum="0" Maximum="{Binding MaxPosition}"
+                    Value="{Binding Position, Mode=OneWay}"
+                    VerticalAlignment="Center" />
+            <TextBlock Grid.Column="1" Classes="mono" Text="{Binding TimeText}"
+                       Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- ── 倍速 ── -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock Classes="caption" Text="倍速" VerticalAlignment="Center" />
+            <ComboBox Width="80" ItemsSource="{Binding SpeedOptions}"
+                      SelectedIndex="{Binding SpeedIndex}" />
+        </StackPanel>
+    </Grid>
+</UserControl>

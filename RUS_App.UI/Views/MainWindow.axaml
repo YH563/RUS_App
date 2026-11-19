@@ -1,0 +1,185 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:RUS_App.UI.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="1600" d:DesignHeight="900"
+        x:Class="RUS_App.UI.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Title="RUS_App"
+        Width="1600" Height="900"
+        MinWidth="1280" MinHeight="720">
+
+    <!--
+    ════════════════════════════════════════════════════════════════════════════
+      主窗口
+    ════════════════════════════════════════════════════════════════════════════
+
+      窗口自身【不设】Background / FontFamily：这两件事由主题的 Controls/Base.axaml
+      统一负责（SurfacePageBrush + FontUi）。一旦在这里写死底色，
+      切深色主题时窗口底色就不会跟着变 —— 这是"主题没全覆盖"的典型症状。
+
+      工具栏高度取令牌 ToolbarHeight(48)：48 高装 32 高的按钮，上下各留 8px 余量；
+      40 高只剩 4px，视觉上"顶天立地"。
+    -->
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- ═══ 共享工具栏 ═══ -->
+        <Border Classes="toolbar">
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="16,0">
+
+                <!-- 左：标题 + 工作区切换（可点分段开关，不再藏在「视图」菜单里） -->
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <TextBlock Classes="pageTitle" Text="RUS_App" VerticalAlignment="Center" />
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Classes="segLeft" Content="工程师" MinWidth="68"
+                                Command="{Binding SwitchToDebugCommand}"
+                                Classes.segOn="{Binding IsDebugMode}" />
+                        <Button Classes="segRight" Content="临床" MinWidth="56"
+                                Command="{Binding SwitchToClinicalCommand}"
+                                Classes.segOn="{Binding IsClinicalMode}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 中：标准菜单栏。每个顶级项都起了名字，供 preview.sh 的 open 参数展开后截图 -->
+                <Menu Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
+                    <MenuItem x:Name="MenuFile" Header="文件">
+                        <MenuItem Header="新建场景" />
+                        <MenuItem Header="打开场景…" />
+                        <Separator />
+                        <MenuItem Header="退出" />
+                    </MenuItem>
+                    <MenuItem x:Name="MenuConnect" Header="连接"
+                              IsEnabled="{Binding Replay.CanUseBackend}">
+                        <MenuItem Header="连接" Command="{Binding Session.ConnectCommand}"
+                                  IsEnabled="{Binding Replay.CanUseBackend}" />
+                        <MenuItem Header="断开连接" Command="{Binding Session.DisconnectCommand}"
+                                  IsEnabled="{Binding Replay.CanUseBackend}" />
+                        <MenuItem Header="关闭设备" Command="{Binding Session.DisableRobotCommand}"
+                                  IsEnabled="{Binding Replay.CanUseBackend}" />
+                    </MenuItem>
+                    <MenuItem x:Name="MenuView" Header="视图">
+                        <MenuItem Header="工程师模式" Command="{Binding SwitchToDebugCommand}" />
+                        <MenuItem Header="临床模式" Command="{Binding SwitchToClinicalCommand}" />
+                        <Separator />
+                        <MenuItem Header="重置视角" Command="{Binding ResetViewCommand}" />
+                    </MenuItem>
+                    <MenuItem x:Name="MenuSettings" Header="设置">
+                        <MenuItem Header="全局参数…" Click="OnOpenSettings" />
+                    </MenuItem>
+                    <MenuItem x:Name="MenuHelp" Header="帮助">
+                        <MenuItem Header="关于" />
+                    </MenuItem>
+                </Menu>
+
+                <!-- 右：状态 + 连接 + 驱动切换 + 安全操作 -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="16"
+                            VerticalAlignment="Center">
+
+                    <!-- 连接状态灯：颜色的选择交给主题的语义类，ViewModel 只报"通/断" -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse Classes="dot"
+                                 Classes.success="{Binding Session.IsConnected}"
+                                 Classes.idle="{Binding Session.IsIdle}" />
+                        <TextBlock Classes="secondary" Text="{Binding Session.ConnectText}" />
+                    </StackPanel>
+
+                    <!-- 运动状态灯：空闲 / 手动 / 扫查中 / 已暂停，四态互斥 -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse Classes="dot"
+                                 Classes.idle="{Binding Session.IsIdle}"
+                                 Classes.info="{Binding Session.IsManual}"
+                                 Classes.warning="{Binding Session.IsScanning}"
+                                 Classes.danger="{Binding Session.IsHalted}" />
+                        <TextBlock Classes="secondary" Text="{Binding Session.ModeText}" />
+                    </StackPanel>
+
+                    <Rectangle Classes="dividerVertical" Height="20" />
+
+                    <!-- 连接 / 断开：连接是首次使用的主操作，直接常驻工具栏
+                         （原来只在「连接」菜单里，新用户找不到）。两个按钮互斥显隐。 -->
+                    <!-- 回放播放中禁止连接 / 断开（后端已被接管，动它只会和回放打架） -->
+                    <Button Classes="accent" Content="连接"
+                            IsVisible="{Binding Session.IsDisconnected}"
+                            IsEnabled="{Binding Replay.CanUseBackend}"
+                            Command="{Binding Session.ConnectCommand}" />
+                    <Button Content="断开"
+                            IsVisible="{Binding Session.IsConnected}"
+                            IsEnabled="{Binding Replay.CanUseBackend}"
+                            Command="{Binding Session.DisconnectCommand}" />
+
+                    <Rectangle Classes="dividerVertical" Height="20" />
+
+                    <!-- 驱动切换（真实 / 仿真）：分段按钮组。
+                         未连接时两个按钮【一起变灰】（IsEnabled 绑连接状态）—— 驱动类型是后端的状态，
+                         没连上就无从知道，任何一个"已选中"都是在撒谎；连上后由 SessionViewModel
+                         回读 get_driver_type 决定哪个亮（后端可能被外部切过，不听本地点击的账）。
+                         CommandParameter 用后端的编码：0 = 仿真、1 = 真实。 -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button Classes="segLeft" Content="真实"
+                                IsEnabled="{Binding Session.IsConnected}"
+                                Classes.segOn="{Binding Session.IsRealDriver}"
+                                Command="{Binding Session.SwitchDriverCommand}"
+                                CommandParameter="1" />
+                        <Button Classes="segRight" Content="仿真"
+                                IsEnabled="{Binding Session.IsConnected}"
+                                Classes.segOn="{Binding Session.UseSimulator}"
+                                Command="{Binding Session.SwitchDriverCommand}"
+                                CommandParameter="0" />
+                    </StackPanel>
+
+                    <Rectangle Classes="dividerVertical" Height="20" />
+
+                    <!-- 录制：全局旁路模块，只决定"录不录"，与手动 / 自动模式无关。
+                         状态灯三色互斥（录制中=红、失败=橙、未录=灰）。 -->
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <Ellipse Classes="dot"
+                                 Classes.danger="{Binding Recorder.IsRecording}"
+                                 Classes.warning="{Binding Recorder.IsFailed}"
+                                 Classes.idle="{Binding Recorder.IsStopped}" />
+                        <TextBlock Classes="secondary" Text="{Binding Recorder.StatusText}"
+                                   VerticalAlignment="Center" />
+                        <Button Classes="sm" Content="{Binding Recorder.ActionText}"
+                                IsEnabled="{Binding Recorder.CanToggle}"
+                                Command="{Binding Recorder.ToggleCommand}" />
+                    </StackPanel>
+
+                    <Rectangle Classes="dividerVertical" Height="20" />
+
+                    <!-- 急停 / 恢复：都用 lg 尺寸，高度一致。
+                         「急停」永远可用（安全底线）；「急停恢复」只有急停按下后才可点 ——
+                         未急停时点击 reset 是误操作，置灰把它挡在视觉层。 -->
+                    <Button x:Name="EstopButton" Classes="danger lg" Content="急停"
+                            FontWeight="{DynamicResource FontWeightBold}"
+                            Command="{Binding Session.EmergencyStopCommand}" />
+                    <Button Classes="success lg" Content="急停恢复"
+                            FontWeight="{DynamicResource FontWeightBold}"
+                            IsEnabled="{Binding Session.IsEmergencyStopped}"
+                            Command="{Binding Session.ResetEmergencyCommand}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!--
+          ═══ 内容区（按模式切换）═══
+
+          这里【只挂当前模式的那一个工作区】，切换由 MainWindow.axaml.cs 换
+          ContentControl.Content 完成 —— 而不是把两个工作区都挂在树上、用 IsVisible 藏一个。
+
+          为什么必须摘下来：两个工作区里各有一个 3D 视口（OpenGlControlBase，见 Scene3DView），
+          而 GL 资源是跟着【挂树期】生灭的 —— IsVisible=false 只是不合成，控件的 GL 上下文、
+          场景图、每帧重绘的渲染循环都还在。切换之后于是同时存在两套：
+          两套 GL 上下文、两份 URDF/STL 模型、两条一直在请求下一帧的循环，
+          画面会在两个视口的状态之间交替 —— 表现就是坐标系与末端法兰持续频闪（本机实测）。
+
+          摘下来的一方走到 OnOpenGlDeinit，GPU 资源在那里释放，同一时刻就只剩一个视口在画。
+          代价是切回来要重新初始化图形栈（每次切换都会有一行 [3d] 就绪，属正常），
+          这是"只有一个视口"必然的代价。
+        -->
+        <ContentControl Grid.Row="1" x:Name="WorkspaceHost"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Stretch" />
+
+    </Grid>
+</Window>

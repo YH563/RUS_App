@@ -1,9 +1,9 @@
-# RUSTool.Charts（简体中文）
+# RUS_App.Charts（简体中文）
 
 > 状态：反映当前实现。配套：[`../README.md`](../README.md)（仓库入口）、[`../architecture/zh-CN.md`](../architecture/zh-CN.md)、[`../ui/zh-CN.md`](../ui/zh-CN.md)、[`../visualization/zh-CN.md`](../visualization/zh-CN.md)、[`../testing/zh-CN.md`](../testing/zh-CN.md)。
 
 这个工程只有一个职责：**让 2D 图表栈（LiveCharts 2 + SkiaSharp）只在这里出现**。
-`RUSTool.UI` 引用它，但只认识三个契约：`Controls/RobotStatePanel.axaml`（控件）、
+`RUS_App.UI` 引用它，但只认识三个契约：`Controls/RobotStatePanel.axaml`（控件）、
 `Data/RobotStateRow.cs`（一行的绑定源）与 `Data/RobotStateRows.cs`（建行 / 推帧 / 清空的静态入口）。
 
 ---
@@ -11,7 +11,7 @@
 ## 1. 它解决什么问题
 
 ```
-RUSTool.UI  ──绑定──►  RobotStatePanel.Rows         （ObservableCollection<RobotStateRow>）
+RUS_App.UI  ──绑定──►  RobotStatePanel.Rows         （ObservableCollection<RobotStateRow>）
             ──绑定──►  RobotStatePanel.IsConnected  （bool，只决定空状态那句话的措辞）
             ──调用──►  RobotStatePanel.PushFrame(effort)   （一帧 = 一个 IReadOnlyList<double>）
                               │
@@ -27,8 +27,8 @@ RUSTool.UI  ──绑定──►  RobotStatePanel.Rows         （ObservableCol
 | 曲线的绘制、坐标轴、线宽、配色、主题跟随 | `StateRowChart` / `StatePalette`（本工程） |
 | 滚动窗口（加尾 + 超限删头）、行头读数 | `RobotStateRow`（本工程，纯数据） |
 | 通道目录（名字 + 单位） | `RobotArmChannels`（本工程） |
-| 从状态帧里取哪一段数组、在哪个线程推 | `RUSTool.UI`（`TorqueChartViewModel`） |
-| 卡片外壳（标题 / 窗口长度 / 圆角 / 位置） | `RUSTool.UI/Views/Debug/DebugWorkspace.axaml`（卡片头；样式来自宿主主题库） |
+| 从状态帧里取哪一段数组、在哪个线程推 | `RUS_App.UI`（`TorqueChartViewModel`） |
+| 卡片外壳（标题 / 窗口长度 / 圆角 / 位置） | `RUS_App.UI/Views/Debug/DebugWorkspace.axaml`（卡片头；样式来自宿主主题库） |
 
 **一行一条曲线、一路一行**，而不是一张图六条线：卡片体只有几百像素高，六条线叠进去必然互相穿插；
 拆成数行后每行一条，形状互不遮挡，行头还有「色标 + 通道名 + 最新读数」可对照 ——
@@ -119,13 +119,13 @@ WS 线程  /state 帧 ──► TorqueChartViewModel.OnStateUpdated
 
 | 包 | 版本 | 作用 |
 |---|---|---|
-| `LiveChartsCore.SkiaSharpView.Avalonia` | **2.1.0-dev-798**（钉死） | 2D 图表（Avalonia 后端）。2.0.4 / 2.0.5 在 Avalonia 12.1.0 下会抛 `MissingFieldException`（`Avalonia.Input.Gestures.PinchEvent`）—— 它们链的是 Avalonia 11 的强签名字段，运行时找不到。升级前先读 `RUSTool.Charts.csproj` 里那段注释 |
+| `LiveChartsCore.SkiaSharpView.Avalonia` | **2.1.0-dev-798**（钉死） | 2D 图表（Avalonia 后端）。2.0.4 / 2.0.5 在 Avalonia 12.1.0 下会抛 `MissingFieldException`（`Avalonia.Input.Gestures.PinchEvent`）—— 它们链的是 Avalonia 11 的强签名字段，运行时找不到。升级前先读 `RUS_App.Charts.csproj` 里那段注释 |
 | `Avalonia` | 12.1.0 | 控件本身是 Avalonia 控件：`UserControl` + `StyledProperty` + 主题资源查询 |
 | `CommunityToolkit.Mvvm` | 8.4.2 | 行模型是绑定源（`ObservableObject` + `ObservableProperty`） |
 | `SkiaSharp` | **故意不显式声明** | 版本必须跟着 Avalonia 走：LiveCharts 的 nuspec 钉的是 2.88.9，而 Avalonia 12 的 `Avalonia.Skia` 要求 `>= 3.119.3-preview.1.1`，两条一起进来就是 `NU1605` 包版本降级（本解决方案把警告当错误）。不声明 → 传递依赖取最高版（3.119.4），编译期照样能用 `SKColor` / `SolidColorPaint` |
 
 工程是 `IsPackable=false` 的库：只服务于本解决方案，不发布 NuGet。
-`RUSTool.UI` 只写 `ProjectReference`，不再自己钉 LiveCharts 版本 —— 图表栈的版本决策只有这一处。
+`RUS_App.UI` 只写 `ProjectReference`，不再自己钉 LiveCharts 版本 —— 图表栈的版本决策只有这一处。
 
 ## 7. 截图模式的一个口子
 
@@ -135,25 +135,25 @@ WS 线程  /state 帧 ──► TorqueChartViewModel.OnStateUpdated
 正常运行时用不上 —— 图表更新有自己的节流器（把一帧内的多次变更合批再画）；
 而截图进程是「推完数据马上就要拍」，等不到那个计时器，不等的话 PNG 里拍到的是一圈空坐标轴。
 做成静态方法（收一个可视树根）是因为截图模式下窗口刚布局完、面板实例还不好拿，
-而「树里所有曲线图」正好是这个场景要的集合。用法见 `RUSTool.UI/Program.cs` 的 `--demo-torque`。
+而「树里所有曲线图」正好是这个场景要的集合。用法见 `RUS_App.UI/Program.cs` 的 `--demo-torque`。
 
 ## 8. 怎么验证（不需要后端）
 
 ```bash
 # 1) 六路关节力矩曲线：按协议的线格式真的拼满一屏（600 帧）状态帧，再走生产解码器解回来（只跳过 WebSocket）
-RUSTool.UI/preview.sh torque                # -> preview/08-engineer-torque.png（浅色 · 工程师模式）
+RUS_App.UI/preview.sh torque                # -> preview/08-engineer-torque.png（浅色 · 工程师模式）
 
 # 2) 空数据态与主题跟随：普通截图不推帧，曲线区撤掉、只留一句提示
-RUSTool.UI/preview.sh dark                  # 深色：应看到「未连接控制通道 · 曲线待数据」
+RUS_App.UI/preview.sh dark                  # 深色：应看到「未连接控制通道 · 曲线待数据」
 
 # 3) 一次拍全（共七张：四张界面组合 + 状态浮层 + 合成点云 + 合成力矩曲线）
-RUSTool.UI/preview.sh all
+RUS_App.UI/preview.sh all
 
 # 4) 真实窗口里看曲线跟着合成帧长出来（不需要后端）
-RUSTool.UI/preview.sh window --demo-torque
+RUS_App.UI/preview.sh window --demo-torque
 ```
 
-真实数据要连后端：`RUSTool.UI/preview.sh window` → 点「连接」→ 状态帧一到，六行开始从左往右长。
+真实数据要连后端：`RUS_App.UI/preview.sh window` → 点「连接」→ 状态帧一到，六行开始从左往右长。
 
 ## 9. 约定与反例
 
@@ -175,7 +175,7 @@ RUSTool.UI/preview.sh window --demo-torque
 
 | 反例 | 为什么不行 |
 |---|---|
-| 在 `RUSTool.UI` 里 `using LiveChartsCore.*` / `SkiaSharp` | 隔离失效（本工程存在的全部理由）；图表库的版本变化会穿过界面层 |
+| 在 `RUS_App.UI` 里 `using LiveChartsCore.*` / `SkiaSharp` | 隔离失效（本工程存在的全部理由）；图表库的版本变化会穿过界面层 |
 | 推帧时不 `Post` 到 UI 线程 | `Values` 是绑定源集合，跨线程改会让图表与绑定同时读到半更新的状态 |
 | 每帧换一个新的 `ObservableCollection` 实例 | 图表订阅的是集合实例，换实例等于让它重挂监听，还会丢掉这一帧的通知 |
 | 对 `Values` 排序 / 过滤 | 曲线的 X 轴是帧序号，形状就是「时间上依次来到的值」；排序后形状不再是信号 |

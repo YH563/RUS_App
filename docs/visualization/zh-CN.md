@@ -1,9 +1,9 @@
-# RUSTool.Visualization（简体中文）
+# RUS_App.Visualization（简体中文）
 
 > 状态：反映当前实现。配套：[`../README.md`](../README.md)（仓库入口）、[`../architecture/zh-CN.md`](../architecture/zh-CN.md)、[`../ui/zh-CN.md`](../ui/zh-CN.md)、[`../charts/zh-CN.md`](../charts/zh-CN.md)（另一条隔离带 · 2D 图表）、[`../testing/zh-CN.md`](../testing/zh-CN.md)。
 
 这个工程只有一个职责：**让 3D 图形栈（Silk.NET + OpenGL + RobotSimulation）只在这里出现**。
-`RUSTool.UI` 引用它，但只认识三个契约：`Controls/RobotViewport.cs`（控件）、
+`RUS_App.UI` 引用它，但只认识三个契约：`Controls/RobotViewport.cs`（控件）、
 `Scene/PointCloudFrame.cs`（点云帧的形状）与
 `Logging/ISimulationLogSink.cs`（日志出口，一个方法 + 四档枚举）。
 
@@ -12,7 +12,7 @@
 ## 1. 它解决什么问题
 
 ```
-RUSTool.UI  ──绑定──►  RobotViewport.JointValues   （float 列表，单位弧度）
+RUS_App.UI  ──绑定──►  RobotViewport.JointValues   （float 列表，单位弧度）
             ──调用──►  RobotViewport.SubmitPointCloud(PointCloudFrame)  （点云帧，任意线程）
                               │
                               ▼        ← 到此为止，界面的世界结束
@@ -29,9 +29,9 @@ RUSTool.UI  ──绑定──►  RobotViewport.JointValues   （float 列表�
 |---|---|
 | GL 上下文 / framebuffer / 相机 / 拾取 / 每帧 | `RobotViewport`（本工程） |
 | URDF 加载、关节驱动、模型装配报告、点云图层 | `RobotScene` / `PointCloudLayer`（本工程，纯 CPU） |
-| 关节角数值 | `RUSTool.UI`（XAML 绑定 `JointValues`，弧度） |
-| 点云帧（已反量化的数组） | `RUSTool.UI`（`Scene3DView` 把 Core 的帧适配成 `PointCloudFrame` 后投递） |
-| 日志面板与落盘 | `RUSTool.UI`（实现 `ISimulationLogSink`） |
+| 关节角数值 | `RUS_App.UI`（XAML 绑定 `JointValues`，弧度） |
+| 点云帧（已反量化的数组） | `RUS_App.UI`（`Scene3DView` 把 Core 的帧适配成 `PointCloudFrame` 后投递） |
+| 日志面板与落盘 | `RUS_App.UI`（实现 `ISimulationLogSink`） |
 
 ## 2. 数据契约（界面层需要知道的全部）
 
@@ -74,7 +74,7 @@ SimulationLogBridge.Attach(new SimulationLogSink(log));   // log 是 ILogService
 |---|---|---|
 | `ISimulationLogSink` / `SimulationLogLevel` | 本工程 `Logging/` | 界面层要实现的唯一接口（一个方法 + 四档枚举，**不认识** M.E.L 的 `LogLevel`） |
 | `SimulationLogBridge` | 本工程 `Logging/` | 实现 `ILoggerProvider`/`ILogger` 把库日志转交出去；映射等级、拼异常、设置库的最低等级 |
-| `SimulationLogSink` | `RUSTool.UI/Services/Logging/` | 界面侧实现：转手写进 `ILogService`（来源列 `sim` / `sim·模块名`） |
+| `SimulationLogSink` | `RUS_App.UI/Services/Logging/` | 界面侧实现：转手写进 `ILogService`（来源列 `sim` / `sim·模块名`） |
 
 三条使用规则：
 
@@ -87,12 +87,12 @@ SimulationLogBridge.Attach(new SimulationLogSink(log));   // log 是 ILogService
 ## 4. 工程内部结构
 
 ```
-RUSTool.Visualization/
+RUS_App.Visualization/
 ├── Controls/RobotViewport.cs        OpenGlControlBase 宿主：GL 生命周期 / 每帧 / 相机 / 拾取 /
 │                                    关节帧与点云帧两条邮箱（唯一的数据入口）
 ├── Scene/RobotScene.cs              场景装配：默认场景 + URDF 模型 + 关节驱动 + 点云 / 轨迹图层（纯 CPU）
 ├── Scene/PointCloudLayer.cs         感知点云图层：整帧替换 / 只读渲染侧的 CPU 数据
-├── Scene/PointCloudFrame.cs         点云帧的形状（本工程自己的类型，不认识 RUSTool.Core）
+├── Scene/PointCloudFrame.cs         点云帧的形状（本工程自己的类型，不认识 RUS_App.Core）
 ├── Logging/
 │   ├── ISimulationLogSink.cs    日志出口契约（1 个方法 + 4 档枚举）
 │   └── SimulationLogBridge.cs   库的 ILoggerProvider → ISimulationLogSink 的桥
@@ -125,7 +125,7 @@ RUSTool.Visualization/
 
 | 段 | 位置 | 线程 | 做什么 |
 |---|---|---|---|
-| 解码 | `RUSTool.Core` 的 `SensorFrameCodec` → `BridgeClient.SensorFrameReceived` | WS 线程 | 解压 + 反量化成 `float[]` / `uint[]` |
+| 解码 | `RUS_App.Core` 的 `SensorFrameCodec` → `BridgeClient.SensorFrameReceived` | WS 线程 | 解压 + 反量化成 `float[]` / `uint[]` |
 | 适配 + 投递 | `Scene3DView.OnPointCloudFrame` → `RobotViewport.SubmitPointCloud` | 仍是 WS 线程 | 换成 `PointCloudFrame`，写进视口的**一格邮箱**（覆盖式），并请求下一帧渲染 |
 | 落地 | `RobotViewport.OnOpenGlRender` → `RobotScene.ApplyPointCloudFrame` → `PointCloudLayer.Apply` | 渲染线程（= 场景图属主） | `Clear()` + `EnsureCapacity()` + `AddPoints()` 整帧替换 |
 
@@ -204,24 +204,24 @@ RUSTool.Visualization/
 
 ## 6. 资产
 
-`Assets/Models/` 随编译复制到输出目录，并被引用本工程的 `RUSTool.UI` 一并带上，
+`Assets/Models/` 随编译复制到输出目录，并被引用本工程的 `RUS_App.UI` 一并带上，
 所以加载路径固定写 `AppContext.BaseDirectory/Assets/...`，与启动时的工作目录无关。见 `Assets/Models/README.md`。
 
 ## 7. 怎么验证（不需要后端）
 
 ```bash
 # 1) 界面 + GL：真窗口跑起来，stderr 会出现 [3d] 就绪 …（含 GPU 与模型加载报告）
-RUSTool.UI/preview.sh window
+RUS_App.UI/preview.sh window
 
 # 2) 无 GL 时的降级：离屏截图不崩、3D 区显示设计好的空状态
-RUSTool.UI/preview.sh dark
+RUS_App.UI/preview.sh dark
 
 # 3) 图形栈日志确实回到了项目日志器（来源列 sim，含库内模块名）
 grep ' sim ' logs/$(date +%F).log        # 例：sim [AssetResolver] 'package://…' → …
 
 # 4) 工作区来回切换（菜单「视图 → 临床模式 / 工程师模式」）：
 #    每次切换都该是「先释放、再重新就绪」，绝不该出现两个视口并存
-RUSTool.UI/preview.sh window   # 依次看到：已释放 GL 资源 → 重新加载 base_link.STL → [3d] 就绪 …
+RUS_App.UI/preview.sh window   # 依次看到：已释放 GL 资源 → 重新加载 base_link.STL → [3d] 就绪 …
 ```
 
 ---
@@ -244,7 +244,7 @@ RUSTool.UI/preview.sh window   # 依次看到：已释放 GL 资源 → 重新�
 
 | 反例 | 为什么不行 |
 |---|---|
-| 在 `RUSTool.UI` 里 `using Silk.NET.*` / `RobotSimulation.*` | 图形栈会泄漏进界面层，隔离失效（本工程存在的全部理由） |
+| 在 `RUS_App.UI` 里 `using Silk.NET.*` / `RobotSimulation.*` | 图形栈会泄漏进界面层，隔离失效（本工程存在的全部理由） |
 | 界面自己画朝向坐标轴 | 与库自带的 gizmo 重复；gizmo 由 `SceneGraph.ShowOrientationGizmo` 统一控制 |
 | 控件自己记一份「当前选中」 | 与库的 `SceneGraph.Selected` 平行，只会让一半生效：用 `PickAndHighlight` 自己复原高亮时，选中对象的局部坐标轴永远挂不上（单击只变色，看不出它的 X/Y/Z 朝哪） |
 | 两个 3D 视口都挂在树上、用 `IsVisible` 藏一个 | `IsVisible=false` 不释放 GL：两套上下文 / 两份模型 / 两条渲染循环同时活着，切换后画面在两者之间交替（坐标系与末端法兰频闪）。正确做法是只把当前模式那一份挂进宿主（`MainWindow` 的 `WorkspaceHost`），另一份从树上摘除 —— 见第 4.1 节 |
